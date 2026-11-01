@@ -26,8 +26,8 @@ jobs:
 
       - name: Set image name
         run: |
-          tag=${GITHUB_SHA::7}
-          [[ $GITHUB_REF == refs/tags/* ]] && tag=$GITHUB_REF_NAME
+          tag=global                       # main (and PR builds, which are not pushed)
+          [[ $GITHUB_REF == refs/tags/* ]] && tag=$GITHUB_REF_NAME   # release tags keep their version
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee:$tag" >> "$GITHUB_ENV"
           echo "TAG=$tag" >> "$GITHUB_ENV"
 
