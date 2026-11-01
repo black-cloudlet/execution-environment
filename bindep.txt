@@ -1,2 +1,7 @@
-git-core [platform:rpm]
-openssh-clients [platform:rpm]
+# RPMs. The build on GitHub has no RHEL subscription, so only packages from
+# the UBI 9 repositories are available.
+git-core [platform:rpm]          # ansible.builtin.git
+openssh-clients [platform:rpm]   # ssh / scp
+rsync [platform:rpm]             # ansible.posix.synchronize
+tar [platform:rpm]               # unarchive / archive
+unzip [platform:rpm]             # unarchive of .zip files

@@ -48,6 +48,8 @@ jobs:
           podman run --rm "$IMAGE" ansible --version
           podman run --rm "$IMAGE" ansible-galaxy collection list
           podman run --rm "$IMAGE" python3 -c "import boto3, botocore; print(boto3.__version__, botocore.__version__)"
+          podman run --rm "$IMAGE" python3 -c "import jmespath, netaddr, passlib, dns, xmltodict"
+          podman run --rm "$IMAGE" rsync --version
 
       - name: Push
         if: github.event_name != 'pull_request'

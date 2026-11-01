@@ -1,1 +1,12 @@
-# Extra pip packages only. boto3/botocore come from amazon.aws automatically.
+# Extra pip packages. Collection dependencies (boto3/botocore for amazon.aws)
+# are added automatically by ansible-builder - don't repeat them here.
+
+jmespath      # community.general.json_query filter (common with AWS output)
+netaddr       # ansible.utils ipaddr / ipv4 / ipv6 filters
+passlib       # password_hash filter
+dnspython     # community.general.dig lookup
+xmltodict     # ansible.utils / XML parsing
+
+# Uncomment if needed
+# pywinrm     # Windows hosts over WinRM
+# hvac        # HashiCorp Vault

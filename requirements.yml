@@ -1,4 +1,16 @@
 ---
 collections:
-  - name: amazon.aws
-  - name: community.aws
+  # AWS
+  - name: amazon.aws            # EC2, S3, IAM, RDS, ... + aws_ec2 inventory
+  - name: community.aws         # extra AWS services (SSM connection, ECS, ...)
+
+  # Everyday building blocks
+  - name: ansible.posix         # synchronize, authorized_key, sysctl, mount, firewalld
+  - name: ansible.utils         # ipaddr filters, validate, cli_parse
+  - name: community.general     # json_query, ini_file, archive, timezone, ...
+  - name: community.crypto      # certificates, keys, openssh_keypair
+
+  # Uncomment if needed
+  # - name: kubernetes.core     # EKS / Kubernetes (adds the kubernetes pip package)
+  # - name: ansible.windows     # Windows hosts (also add pywinrm to requirements.txt)
+  # - name: community.hashi_vault
