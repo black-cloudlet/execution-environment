@@ -1,0 +1,17 @@
+---
+# Public / certified collections baked into ee-deps.
+#
+# Their Python and RPM dependencies are discovered by ansible-builder
+# introspection (each collection's requirements.txt / bindep.txt), so boto3
+# and botocore come in with amazon.aws automatically.
+#
+# Internal collections do NOT belong here - they go in ee-internal.
+#
+# Release tags should be reproducible: once a build is good, pin exact
+# versions (take them from `ansible-galaxy collection list` in the smoke-test
+# log) and bump them deliberately in an MR.
+collections:
+  - name: amazon.aws
+    version: ">=10.0.0"
+  - name: community.aws
+    version: ">=10.0.0"

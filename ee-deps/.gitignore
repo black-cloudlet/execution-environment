@@ -1,0 +1,8 @@
+context/
+bundle/
+*.oci.tar
+.trivycache/
+image.digest
+build.env
+sbom.cdx.json
+trivy-report.json

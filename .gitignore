@@ -1,0 +1,4 @@
+context/
+bundle/
+*.oci.tar
+.trivycache/

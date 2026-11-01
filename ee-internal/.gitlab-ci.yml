@@ -1,0 +1,168 @@
+# ee-internal: thin internal EE on top of the imported ee-deps image
+# (air-gapped GitLab).
+#
+#   MR              verify base -> create -> build (smoke, secrets)   nothing pushed
+#   default branch  ... -> push :<short-sha>
+#   semver tag      ... -> push :<tag> (immutable) -> [manual] register-ee in AAP
+#
+# Network: the build needs Quay (base image) and PAH (collections) only.
+# Runner: OpenShift, Kubernetes executor, build SA with pipelines-scc or
+# anyuid (NOT privileged). See README.md.
+#
+# Required CI/CD variables:
+#   REGISTRY           internal Quay host, e.g. quay.example.internal
+#   REGISTRY_USER      Quay robot: pull ee/ee-deps, push ee/ee-internal   (masked)
+#   REGISTRY_PASSWORD                                                     (masked)
+#   PAH_TOKEN          Private Automation Hub API token                   (masked)
+#   COSIGN_PUBLIC_KEY  cosign.pub matching ee-deps' signing key, type File
+#   CI_TOOLS_IMAGE     digest-pinned tools image in internal Quay
+# For register-ee (protected, used on tags only):
+#   AAP_URL            e.g. https://aap.example.internal
+#   AAP_TOKEN          AAP OAuth token                        (masked, protected)
+#   AAP_REG_CRED_ID    ID of the AAP "Container Registry" credential for Quay
+#   AAP_ORG_ID         organization ID (leave empty for an org-less/global EE)
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/
+      variables:
+        IMAGE_TAG: $CI_COMMIT_TAG
+        PUBLISH: "true"
+    - if: $CI_COMMIT_TAG
+      when: never # non-semver tags do not build
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        IMAGE_TAG: mr-$CI_MERGE_REQUEST_IID
+        PUBLISH: "false"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+        PUBLISH: "true"
+
+variables:
+  REGISTRY: quay.example.internal
+  IMAGE_NAME: $REGISTRY/ee/ee-internal
+  CI_TOOLS_IMAGE: $REGISTRY/ee/ee-ci-tools:set-CI_TOOLS_IMAGE-in-project-variables
+  # amazon.aws/community.aws come from ee-deps; add every internal
+  # collection from requirements.yml
+  EXPECTED_COLLECTIONS: amazon.aws community.aws acme.platform
+  AAP_EE_NAME: global
+  # rootless buildah on OpenShift
+  STORAGE_DRIVER: vfs
+  BUILDAH_ISOLATION: chroot
+  BUILDAH_FORMAT: oci
+  REGISTRY_AUTH_FILE: /tmp/auth/config.json
+  DOCKER_CONFIG: /tmp/auth
+
+stages:
+  - verify
+  - prepare
+  - build
+  - deploy
+
+default:
+  image: $CI_TOOLS_IMAGE
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - |
+      # Trust the internal CA (files/certs) for buildah/skopeo/cosign (Go)
+      # and curl when talking to Quay, PAH and AAP.
+      certs=$(find files/certs -type f \( -name '*.crt' -o -name '*.pem' \) 2>/dev/null || true)
+      if [ -n "$certs" ]; then
+        cat /etc/pki/tls/certs/ca-bundle.crt $certs > /tmp/ca-bundle.pem
+        export SSL_CERT_FILE=/tmp/ca-bundle.pem CURL_CA_BUNDLE=/tmp/ca-bundle.pem
+      fi
+    - |
+      registry_login() {
+        if [ -z "${REGISTRY_USER:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
+          echo "ERROR: REGISTRY_USER / REGISTRY_PASSWORD must be set" >&2
+          return 1
+        fi
+        printf '%s' "$REGISTRY_PASSWORD" | buildah login --authfile "$REGISTRY_AUTH_FILE" \
+          --username "$REGISTRY_USER" --password-stdin "$REGISTRY"
+      }
+
+# --------------------------------------------------------------------------
+# verify: refuse to build on a base image that ee-deps did not sign
+# --------------------------------------------------------------------------
+verify-base:
+  stage: verify
+  script:
+    - registry_login
+    - scripts/verify-base.sh execution-environment.yml
+
+# --------------------------------------------------------------------------
+# prepare
+# --------------------------------------------------------------------------
+create:
+  stage: prepare
+  needs: [verify-base]
+  script:
+    - ansible-builder create -v 3 -f execution-environment.yml -c context --output-filename Containerfile
+    - cat context/Containerfile
+  artifacts:
+    paths: [context/]
+    expire_in: 1 day
+
+# --------------------------------------------------------------------------
+# build -> smoke test -> secret check -> push
+# --------------------------------------------------------------------------
+build:
+  stage: build
+  needs: [create]
+  variables:
+    IMAGE: $IMAGE_NAME:$IMAGE_TAG
+  script:
+    - registry_login
+    - |
+      if [ -z "${PAH_TOKEN:-}" ]; then echo "ERROR: PAH_TOKEN is not set" >&2; exit 1; fi
+    - |
+      echo "### build $IMAGE"
+      # The token is consumed by an ARG in the intermediate galaxy stage
+      # only - never ENV, never in the final image (checked below).
+      buildah build --layers=false \
+        --file context/Containerfile \
+        --tag "$IMAGE" \
+        --build-arg "ANSIBLE_GALAXY_SERVER_AUTOMATION_HUB_TOKEN=$PAH_TOKEN" \
+        --label org.opencontainers.image.title=ee-internal \
+        --label "org.opencontainers.image.version=$IMAGE_TAG" \
+        --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" \
+        --label "org.opencontainers.image.base.name=$(scripts/base-image.sh execution-environment.yml)" \
+        context
+    - echo "### smoke test" && scripts/smoke-test.sh "$IMAGE" $EXPECTED_COLLECTIONS
+    - echo "### secret check" && scripts/check-no-secrets.sh "$IMAGE" PAH_TOKEN REGISTRY_PASSWORD AAP_TOKEN
+    - |
+      : > build.env
+      if [ "$PUBLISH" = "true" ]; then
+        echo "### push $IMAGE"
+        if [ -n "${CI_COMMIT_TAG:-}" ] && skopeo inspect --raw "docker://$IMAGE" >/dev/null 2>&1; then
+          echo "ERROR: $IMAGE already exists - release tags are immutable" >&2
+          exit 1
+        fi
+        buildah push --digestfile image.digest "$IMAGE" "docker://$IMAGE"
+        echo "IMAGE_DIGEST=$(cat image.digest)" >> build.env
+        echo "IMAGE_REF=$IMAGE_NAME@$(cat image.digest)" >> build.env
+        cat build.env
+      else
+        echo "### MR pipeline - not pushing"
+      fi
+  artifacts:
+    reports:
+      dotenv: build.env
+
+# --------------------------------------------------------------------------
+# deploy: point the AAP execution environment at the new tag (manual)
+# --------------------------------------------------------------------------
+register-ee:
+  stage: deploy
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: manual
+      allow_failure: true
+  environment:
+    name: aap
+    url: $AAP_URL
+  resource_group: aap-execution-environment
+  script:
+    - scripts/register-ee.sh "$IMAGE_NAME:$IMAGE_TAG"

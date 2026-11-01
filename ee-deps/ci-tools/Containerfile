@@ -1,0 +1,40 @@
+# CI tools image used by the ee-deps and ee-internal pipelines.
+#
+# Rootless buildah plus everything the jobs call: ansible-builder, skopeo,
+# cosign, trivy, jq, curl and python3-pyyaml. One image, so only one tools
+# image has to be carried across the air gap.
+#
+# Every upstream input is pinned by digest. Bump them deliberately.
+ARG BUILDAH_IMAGE=quay.io/buildah/stable:v1.43.5@sha256:baaa8fe50d0e78687fa39ef90d5afcea07a6bec086dfdef99f792b555f98fbcd
+# cosign stays on v2.x: the pipelines rely on its key-pair, no-Rekor
+# flags (--tlog-upload=false / --insecure-ignore-tlog).
+ARG COSIGN_IMAGE=ghcr.io/sigstore/cosign/cosign:v2.6.1@sha256:68839b7f13dac5a6744a5d8818e984dd39183374e37855c19e14d623d9bc9037
+ARG TRIVY_IMAGE=docker.io/aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+
+FROM ${COSIGN_IMAGE} AS cosign
+FROM ${TRIVY_IMAGE} AS trivy
+
+FROM ${BUILDAH_IMAGE}
+ARG ANSIBLE_BUILDER_VERSION=3.2.0
+
+USER root
+RUN dnf -y install --setopt=install_weak_deps=False \
+      skopeo jq curl python3 python3-pyyaml findutils \
+ && dnf clean all \
+ && python3 -m venv /opt/ansible-builder \
+ && /opt/ansible-builder/bin/pip install --no-cache-dir "ansible-builder==${ANSIBLE_BUILDER_VERSION}" \
+ && ln -s /opt/ansible-builder/bin/ansible-builder /usr/local/bin/ansible-builder
+
+COPY --from=cosign /ko-app/cosign /usr/local/bin/cosign
+COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
+
+RUN buildah --version && skopeo --version && ansible-builder --version \
+ && cosign version && trivy --version && jq --version
+
+ENV STORAGE_DRIVER=vfs \
+    BUILDAH_ISOLATION=chroot
+
+# uid 1000 with /etc/subuid and /etc/subgid ranges, provided by the buildah
+# image.
+USER build
+WORKDIR /home/build

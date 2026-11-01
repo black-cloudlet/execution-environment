@@ -1,0 +1,212 @@
+# ee-deps: heavy dependency EE, built on the connected GitLab.
+#
+#   MR              create -> build (smoke, secrets, scan)          nothing pushed
+#   default branch  ... -> push :<short-sha> -> cosign sign
+#   semver tag      ... -> push :<tag> (immutable) -> sign -> export transfer bundle
+#
+# Runner: Kubernetes executor, rootless buildah (uid 1000, not privileged).
+# See README.md "Runner requirements".
+#
+# Required CI/CD variables (Settings > CI/CD > Variables):
+#   REGISTRY                 connected registry host, e.g. quay.example.com
+#   REGISTRY_USER            robot account with push to $REGISTRY/ee/*   (masked)
+#   REGISTRY_PASSWORD                                                    (masked)
+#   RH_REGISTRY_USER         registry.redhat.io service account          (masked)
+#   RH_REGISTRY_PASSWORD                                                 (masked)
+#   COSIGN_PRIVATE_KEY       cosign.key, type File, protected
+#   COSIGN_PASSWORD          password of cosign.key            (masked, protected)
+#   COSIGN_PUBLIC_KEY        cosign.pub, type File
+#   CI_TOOLS_IMAGE           digest-pinned tools image (see ci-tools job)
+# Optional:
+#   RH_AUTOMATION_HUB_TOKEN  console.redhat.com offline token -> certified content
+#   TRIVY_IGNORE_UNFIXED     "true" to ignore CVEs that have no fix yet
+
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v?\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/
+      variables:
+        IMAGE_TAG: $CI_COMMIT_TAG
+        PUBLISH: "true"
+    - if: $CI_COMMIT_TAG
+      when: never # non-semver tags do not build
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      variables:
+        IMAGE_TAG: mr-$CI_MERGE_REQUEST_IID
+        PUBLISH: "false"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      variables:
+        IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+        PUBLISH: "true"
+
+variables:
+  REGISTRY: quay.example.com
+  IMAGE_NAME: $REGISTRY/ee/ee-deps
+  CI_TOOLS_REPO: $REGISTRY/ee/ee-ci-tools
+  CI_TOOLS_IMAGE: $CI_TOOLS_REPO:set-CI_TOOLS_IMAGE-in-project-variables
+  EXPECTED_COLLECTIONS: amazon.aws community.aws
+  # rootless buildah on Kubernetes
+  STORAGE_DRIVER: vfs
+  BUILDAH_ISOLATION: chroot
+  BUILDAH_FORMAT: oci
+  # one auth file for buildah, skopeo and cosign; kept outside the
+  # project dir so it can never end up in artifacts
+  REGISTRY_AUTH_FILE: /tmp/auth/config.json
+  DOCKER_CONFIG: /tmp/auth
+  TRIVY_CACHE_DIR: .trivycache
+  TRIVY_IGNORE_UNFIXED: "false"
+
+stages:
+  - prepare
+  - build
+  - publish
+  - release
+
+default:
+  image: $CI_TOOLS_IMAGE
+  before_script:
+    - mkdir -p "$DOCKER_CONFIG"
+    - |
+      # registry_login HOST USER_VAR PASSWORD_VAR
+      registry_login() {
+        local host=$1 user=${!2:-} pass=${!3:-}
+        if [ -z "$user" ] || [ -z "$pass" ]; then
+          echo "ERROR: $2 / $3 must be set to log in to $host" >&2
+          return 1
+        fi
+        printf '%s' "$pass" | buildah login --authfile "$REGISTRY_AUTH_FILE" \
+          --username "$user" --password-stdin "$host"
+      }
+
+# --------------------------------------------------------------------------
+# prepare
+# --------------------------------------------------------------------------
+create:
+  stage: prepare
+  script:
+    - echo "base image $(scripts/base-image.sh execution-environment.yml)"
+    - ansible-builder create -v 3 -f execution-environment.yml -c context --output-filename Containerfile
+    - cat context/Containerfile
+  artifacts:
+    paths: [context/]
+    expire_in: 1 day
+
+# Builds the CI tools image itself (from the upstream buildah image, so it
+# can bootstrap). Push only outside MRs; then set CI_TOOLS_IMAGE (here and in
+# ee-internal) to the printed digest and carry the image across the gap.
+ci-tools:
+  stage: prepare
+  image: quay.io/buildah/stable:v1.43.5@sha256:baaa8fe50d0e78687fa39ef90d5afcea07a6bec086dfdef99f792b555f98fbcd
+  needs: []
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: [ci-tools/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: [ci-tools/**/*]
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    - buildah build --layers=false -f ci-tools/Containerfile -t "$CI_TOOLS_REPO:$CI_COMMIT_SHORT_SHA" ci-tools
+    - |
+      if [ "$PUBLISH" = "true" ]; then
+        registry_login "$REGISTRY" REGISTRY_USER REGISTRY_PASSWORD
+        buildah push --digestfile tools.digest "$CI_TOOLS_REPO:$CI_COMMIT_SHORT_SHA"
+        echo "CI_TOOLS_IMAGE=$CI_TOOLS_REPO@$(cat tools.digest)"
+      fi
+
+# --------------------------------------------------------------------------
+# build: build -> smoke test -> secret check -> scan -> push
+# The image only lives in this pod's storage, so it is tested and scanned
+# here and pushed only once every gate has passed.
+# --------------------------------------------------------------------------
+build:
+  stage: build
+  needs: [create]
+  variables:
+    IMAGE: $IMAGE_NAME:$IMAGE_TAG
+  cache:
+    key: trivy-db
+    paths: [.trivycache/]
+  script:
+    - registry_login registry.redhat.io RH_REGISTRY_USER RH_REGISTRY_PASSWORD
+    - |
+      echo "### build $IMAGE"
+      galaxy_args=()
+      if [ -n "${RH_AUTOMATION_HUB_TOKEN:-}" ]; then
+        # consumed by ARGs in the intermediate galaxy stage only
+        galaxy_args+=(
+          --build-arg "ANSIBLE_GALAXY_SERVER_LIST=certified,validated,galaxy"
+          --build-arg "ANSIBLE_GALAXY_SERVER_CERTIFIED_TOKEN=$RH_AUTOMATION_HUB_TOKEN"
+          --build-arg "ANSIBLE_GALAXY_SERVER_VALIDATED_TOKEN=$RH_AUTOMATION_HUB_TOKEN"
+        )
+      fi
+      buildah build --layers=false \
+        --file context/Containerfile \
+        --tag "$IMAGE" \
+        --label org.opencontainers.image.title=ee-deps \
+        --label "org.opencontainers.image.version=$IMAGE_TAG" \
+        --label "org.opencontainers.image.revision=$CI_COMMIT_SHA" \
+        "${galaxy_args[@]}" \
+        context
+    - echo "### smoke test" && scripts/smoke-test.sh "$IMAGE" $EXPECTED_COLLECTIONS
+    - echo "### secret check" && scripts/check-no-secrets.sh "$IMAGE" RH_AUTOMATION_HUB_TOKEN RH_REGISTRY_PASSWORD REGISTRY_PASSWORD COSIGN_PASSWORD
+    - |
+      echo "### scan + SBOM"
+      buildah push "$IMAGE" oci-archive:image.oci.tar
+      trivy image --input image.oci.tar --format cyclonedx --output sbom.cdx.json
+      trivy image --input image.oci.tar --scanners vuln --format json --output trivy-report.json
+      trivy image --input image.oci.tar --scanners vuln --severity CRITICAL --exit-code 1
+      rm -f image.oci.tar
+    - |
+      : > build.env
+      if [ "$PUBLISH" = "true" ]; then
+        echo "### push $IMAGE"
+        registry_login "$REGISTRY" REGISTRY_USER REGISTRY_PASSWORD
+        if [ -n "${CI_COMMIT_TAG:-}" ] && skopeo inspect --raw "docker://$IMAGE" >/dev/null 2>&1; then
+          echo "ERROR: $IMAGE already exists - release tags are immutable" >&2
+          exit 1
+        fi
+        buildah push --digestfile image.digest "$IMAGE" "docker://$IMAGE"
+        echo "IMAGE_DIGEST=$(cat image.digest)" >> build.env
+        echo "IMAGE_REF=$IMAGE_NAME@$(cat image.digest)" >> build.env
+        cat build.env
+      else
+        echo "### MR pipeline - not pushing"
+      fi
+  artifacts:
+    when: always
+    paths: [sbom.cdx.json, trivy-report.json]
+    reports:
+      dotenv: build.env
+    expire_in: 30 days
+
+# --------------------------------------------------------------------------
+# publish: sign by digest (key pair, no public transparency log - the
+# signature has to verify offline inside the air gap)
+# --------------------------------------------------------------------------
+sign:
+  stage: publish
+  needs: [build]
+  rules:
+    - if: $PUBLISH == "true"
+  script:
+    - registry_login "$REGISTRY" REGISTRY_USER REGISTRY_PASSWORD
+    - test -n "$IMAGE_REF" || { echo "IMAGE_REF missing from build job" >&2; exit 1; }
+    - cosign sign --yes --tlog-upload=false --key "$COSIGN_PRIVATE_KEY" -a "tag=$IMAGE_TAG" -a "revision=$CI_COMMIT_SHA" "$IMAGE_REF"
+    - cosign verify --key "$COSIGN_PUBLIC_KEY" --insecure-ignore-tlog=true "$IMAGE_REF" | jq .
+
+# --------------------------------------------------------------------------
+# release: transfer bundle for the air gap (tags only)
+# --------------------------------------------------------------------------
+export-bundle:
+  stage: release
+  needs: [build, sign]
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - registry_login "$REGISTRY" REGISTRY_USER REGISTRY_PASSWORD
+    - scripts/export-bundle.sh "$IMAGE_REF" "$IMAGE_TAG" sbom.cdx.json bundle
+  artifacts:
+    name: ee-deps-$CI_COMMIT_TAG
+    paths: [bundle/]
+    expire_in: 90 days
