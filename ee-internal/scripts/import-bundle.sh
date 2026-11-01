@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Import an ee-deps transfer bundle into the internal Quay and verify it.
+# Import a transfer bundle (ee-deps or ee-ci-tools, made by export-bundle.sh)
+# into the internal Quay and verify it.
 #
 # Usage: import-bundle.sh BUNDLE_DIR TARGET_REPO [EE_FILE]
 #   BUNDLE_DIR   unpacked export-bundle artifact (contains SHA256SUMS)
@@ -34,11 +35,14 @@ sha256sum --check --strict SHA256SUMS
 cosign verify-blob --key "$key" --insecure-ignore-tlog=true --signature SHA256SUMS.sig SHA256SUMS
 
 shopt -s nullglob
-digests=(ee-deps-*.digest)
-((${#digests[@]} == 1)) || { echo "expected exactly one ee-deps-*.digest in $bundle" >&2; exit 1; }
+digests=(*.digest)
+((${#digests[@]} == 1)) || { echo "expected exactly one *.digest file in $bundle" >&2; exit 1; }
 name=${digests[0]%.digest}
-tag=${name#ee-deps-}
 digest=$(<"${digests[0]}")
+# first line of NAME.source is "<source repo>:<tag>"
+source_ref=$(head -n1 "$name.source")
+tag=${source_ref##*:}
+[[ $tag =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "bad tag in $name.source: $tag" >&2; exit 1; }
 [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "bad digest file: $digest" >&2; exit 1; }
 
 echo "--- image $name -> $target:$tag"

@@ -1,0 +1,121 @@
+# CI tools image for the air-gapped ee-internal GitLab pipeline: rootless
+# buildah, ansible-builder, skopeo, cosign, trivy and jq. Built from
+# ee-deps/ci-tools/Containerfile.
+#
+#   pull request  build only
+#   main          build -> push ghcr.io/<owner>/ee-ci-tools:<short-sha> -> sign
+#                 -> transfer bundle artifact (import it with
+#                    ee-internal/scripts/import-bundle.sh, like ee-deps)
+#
+# Uses the same "signing" environment and COSIGN_PUBLIC_KEY variable as ee-deps.
+name: ci-tools
+
+on:
+  pull_request:
+    paths:
+      - ee-deps/ci-tools/**
+      - .github/workflows/ci-tools.yml
+  push:
+    branches: [main]
+    paths:
+      - ee-deps/ci-tools/**
+      - .github/workflows/ci-tools.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.meta.outputs.image_tag }}
+      publish: ${{ steps.meta.outputs.publish }}
+      image_ref: ${{ steps.push.outputs.image_ref }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-ee-tools
+        with:
+          ansible-builder: "false"
+          ghcr-token: ${{ github.token }}
+
+      - name: Image name and tag
+        id: meta
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
+        run: |
+          image_name="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ee-ci-tools"
+          tag=${GITHUB_SHA::7}
+          publish=false
+          if [[ $GITHUB_EVENT_NAME != pull_request && $GITHUB_REF_NAME == "$DEFAULT_BRANCH" ]]; then
+            publish=true
+          fi
+          {
+            echo "image_name=$image_name"
+            echo "image_tag=$tag"
+            echo "image=$image_name:$tag"
+            echo "publish=$publish"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      - name: buildah build
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          buildah build --layers=false --format oci \
+            --file ee-deps/ci-tools/Containerfile \
+            --tag "$IMAGE" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            ee-deps/ci-tools
+
+      - name: Push
+        id: push
+        if: steps.meta.outputs.publish == 'true'
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          IMAGE_NAME: ${{ steps.meta.outputs.image_name }}
+        run: |
+          buildah push --digestfile tools.digest "$IMAGE" "docker://$IMAGE"
+          echo "image_ref=$IMAGE_NAME@$(cat tools.digest)" | tee -a "$GITHUB_OUTPUT"
+
+  publish:
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    environment: signing
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-ee-tools
+        with:
+          ansible-builder: "false"
+          ghcr-token: ${{ github.token }}
+
+      - name: cosign sign + export bundle
+        env:
+          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          BUNDLE_NAME: ee-ci-tools
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PUBLIC_KEY: ${{ vars.COSIGN_PUBLIC_KEY }}
+        run: |
+          cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY \
+            -a "revision=$GITHUB_SHA" "$IMAGE_REF"
+          ee-deps/scripts/export-bundle.sh "$IMAGE_REF" "$IMAGE_TAG" - bundle
+          echo "### CI_TOOLS_IMAGE for ee-internal: <internal-quay>/ee/ee-ci-tools@${IMAGE_REF##*@}" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ee-ci-tools-${{ needs.build.outputs.image_tag }}
+          path: bundle/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 90

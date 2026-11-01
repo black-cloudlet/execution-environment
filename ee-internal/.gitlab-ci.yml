@@ -15,7 +15,8 @@
 #   REGISTRY_PASSWORD                                                     (masked)
 #   PAH_TOKEN          Private Automation Hub API token                   (masked)
 #   COSIGN_PUBLIC_KEY  cosign.pub matching ee-deps' signing key, type File
-#   CI_TOOLS_IMAGE     digest-pinned tools image in internal Quay
+#   CI_TOOLS_IMAGE     digest-pinned tools image in internal Quay (from the
+#                      GitHub ci-tools workflow, imported with import-bundle.sh)
 # For register-ee (protected, used on tags only):
 #   AAP_URL            e.g. https://aap.example.internal
 #   AAP_TOKEN          AAP OAuth token                        (masked, protected)

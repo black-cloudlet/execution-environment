@@ -1,5 +1,9 @@
 # ee-internal: internal execution environment (air-gapped side)
 
+This folder is the content of the **air-gapped GitLab project** and is
+built by its `.gitlab-ci.yml`. The connected side (ee-deps) is built by
+GitHub Actions.
+
 ee-internal is a thin layer on top of the imported, signature-verified
 **ee-deps** image. It adds **only internal collections** from Private
 Automation Hub (PAH) and is the image registered in AAP as the execution
@@ -20,7 +24,7 @@ already in ee-deps. The build therefore reaches only two services:
 | `files/ansible.cfg` | `server_list = automation_hub` pointing at PAH. No token |
 | `files/certs/` | Internal CA certificates (`*.crt` / `*.pem`) |
 | `scripts/verify-base.sh` | Verifies the base image's cosign signature |
-| `scripts/import-bundle.sh` | Imports an ee-deps transfer bundle into Quay and bumps the digest |
+| `scripts/import-bundle.sh` | Imports a transfer bundle (ee-deps or ee-ci-tools, both from GitHub Actions) into Quay. For ee-deps it also bumps the digest |
 | `scripts/register-ee.sh` | Creates or updates the EE in AAP |
 | `scripts/smoke-test.sh`, `check-no-secrets.sh`, `base-image.sh` | Identical copies of the ee-deps scripts |
 | `docs/aap-changes.md` | One-time changes to projects, job templates and inventory sources in AAP |
@@ -86,7 +90,7 @@ contacting PAH.
 | `REGISTRY_USER` / `REGISTRY_PASSWORD` | Quay robot account: pull `ee/ee-deps` and `ee/ee-ci-tools`, push `ee/ee-internal` (masked) |
 | `PAH_TOKEN` | PAH API token with read access to the internal namespace (masked) |
 | `COSIGN_PUBLIC_KEY` | `cosign.pub` from ee-deps (type **File**) |
-| `CI_TOOLS_IMAGE` | internal copy of the tools image, by digest |
+| `CI_TOOLS_IMAGE` | internal copy of the tools image, by digest. Built by the `ci-tools` GitHub workflow and imported with `scripts/import-bundle.sh` |
 | `AAP_URL` | e.g. `https://aap.example.internal` (gateway). `/api/controller/v2/` is appended |
 | `AAP_TOKEN` | AAP OAuth token allowed to manage execution environments (masked, **protected**) |
 | `AAP_REG_CRED_ID` | ID of the AAP *Container Registry* credential for Quay |

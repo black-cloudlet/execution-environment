@@ -5,12 +5,13 @@ ee-deps is the heavy layer of the AAP execution environments: the AAP 2.7
 and RPM dependencies. Those dependencies are baked in by `ansible-builder`, so
 jobs no longer fail with *"boto3/botocore required"*.
 
-It is built, scanned and signed on the connected GitLab, then exported as a
-transfer bundle and imported into the air-gapped Quay. There it becomes the
-base image of **ee-internal**.
+It is built, scanned and signed by **GitHub Actions** and pushed to
+**GHCR**, then exported as a transfer bundle and imported into the
+air-gapped Quay. There it becomes the base image of **ee-internal**, which is
+built by the air-gapped GitLab.
 
-> **Never put internal content in this repo.** No internal collections, CA
-> certificates, hostnames or credentials. Those belong in ee-internal.
+> **Never put internal content in this folder.** No internal collections, CA
+> certificates, hostnames or credentials. Those belong in `ee-internal/`.
 
 ## Files
 
@@ -22,21 +23,31 @@ base image of **ee-internal**.
 | `bindep.txt` | RPMs (`pkg [platform:rpm]`) |
 | `.trivyignore` | Accepted CVEs, with justification |
 | `scripts/` | `base-image.sh` (digest-pin check), `smoke-test.sh`, `check-no-secrets.sh`, `export-bundle.sh` |
-| `ci-tools/Containerfile` | CI tools image: rootless buildah, ansible-builder, skopeo, cosign v2, trivy, jq |
+| `ci-tools/Containerfile` | Tools image for the air-gapped GitLab: rootless buildah, ansible-builder, skopeo, cosign v2, trivy, jq |
+| `../.github/workflows/ee-deps.yml` | The ee-deps pipeline |
+| `../.github/workflows/ci-tools.yml` | Builds, signs and exports the tools image |
+| `../.github/actions/setup-ee-tools/` | Installs pinned ansible-builder, cosign and trivy on the runner |
 
-## Pipeline
+## Pipeline (`.github/workflows/ee-deps.yml`)
+
+It runs on GitHub-hosted `ubuntu-24.04`, which already has buildah, podman
+and skopeo. cosign and trivy are copied out of their digest-pinned upstream
+images, so no third-party actions are involved.
 
 | Trigger | Jobs | Result |
 |---------|------|--------|
-| Merge request | create → build (smoke test, secret check, Trivy) | nothing pushed |
-| Default branch | … → push `:<short-sha>` → sign | signed image |
-| Semver tag `vX.Y.Z` | … → push `:<tag>` (refused if it already exists) → sign → **export-bundle** | signed image + transfer bundle in job artifacts |
+| Pull request touching `ee-deps/**` | build (create, build, smoke test, secret check, Trivy) | nothing pushed |
+| Push to `main`, weekly schedule | … → push `ghcr.io/<owner>/ee-deps:<short-sha>` → sign | signed image |
+| Tag `ee-deps-vX.Y.Z` | … → push `:vX.Y.Z` (refused if it already exists) → sign → **export-bundle** | signed image + transfer bundle artifact `ee-deps-vX.Y.Z` |
 
-Inside `build`, the image is smoke-tested, checked for secrets and scanned
-(it fails on any `CRITICAL` CVE not in `.trivyignore`). Only then is it
-pushed. All of this happens in one job because the image lives only in that
-pod's storage. Splitting the steps would mean pushing unscanned images or
-passing a ~1 GB artifact between jobs.
+- **Tag prefix:** this repo also holds `ee-internal/`, so ee-deps release
+  tags carry an `ee-deps-` prefix. The image tag is the bare semver
+  (`v1.4.0`).
+- **One build job:** the image is smoke-tested, checked for secrets and
+  scanned (it fails on any `CRITICAL` CVE not in `.trivyignore`) in the same
+  job. Only then is it pushed. The image exists only on that runner.
+- **Artifacts:** every run uploads the SBOM and the Trivy JSON report as
+  `ee-deps-reports-<tag>`.
 
 Smoke test (`scripts/smoke-test.sh`):
 
@@ -55,8 +66,8 @@ skopeo inspect --format '{{.Digest}}' \
   docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:latest
 ```
 
-Put the digest into `images.base_image.name`. CI rejects the all-zero
-placeholder and any reference that isn't digest-pinned. If
+Put the digest into `images.base_image.name`. The workflow rejects the
+all-zero placeholder and any reference that isn't digest-pinned. If
 `ansible --version` in the base reports a Python other than
 `/usr/bin/python3`, set `dependencies.python_interpreter` as described in the
 file comment.
@@ -67,61 +78,52 @@ file comment.
 cosign generate-key-pair
 ```
 
-- `cosign.key` goes into CI variable `COSIGN_PRIVATE_KEY` (type **File**,
-  protected), with its password in `COSIGN_PASSWORD` (masked, protected).
-- `cosign.pub` goes into `COSIGN_PUBLIC_KEY` (type File) here **and** in
-  ee-internal. Carry it across the gap separately from any bundle (see
-  "Import" below).
-
 Signing uses `--tlog-upload=false` and verification uses
 `--insecure-ignore-tlog=true`. Nothing goes to the public Rekor log, and
 signatures verify offline inside the air gap.
 
-### 3. CI/CD variables
+### 3. Secrets, variables and the `signing` environment
 
-| Variable | Notes |
-|----------|-------|
-| `REGISTRY` | connected Quay host |
-| `REGISTRY_USER` / `REGISTRY_PASSWORD` | robot account with push access to `ee/ee-deps` and `ee/ee-ci-tools` |
-| `RH_REGISTRY_USER` / `RH_REGISTRY_PASSWORD` | registry.redhat.io service account |
-| `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY` | see above |
-| `CI_TOOLS_IMAGE` | digest-pinned tools image (step 4) |
-| `RH_AUTOMATION_HUB_TOKEN` | *optional.* console.redhat.com offline token. When set, collections come from certified/validated content first, then Galaxy |
-| `TRIVY_IGNORE_UNFIXED` | *optional.* `"true"` ignores CVEs that have no fix yet |
+In **Settings → Environments**, create the environment **`signing`**.
 
-Protect the default branch and `v*` tags, and mark the signing variables as
-protected.
+- Deployment branches and tags: `main` and `ee-deps-v*`.
+- Optionally add required reviewers.
 
-### 4. CI tools image
+| Where | Name | Value |
+|-------|------|-------|
+| Environment `signing`, secret | `COSIGN_PRIVATE_KEY` | content of `cosign.key` |
+| Environment `signing`, secret | `COSIGN_PASSWORD` | its password |
+| Repository variable | `COSIGN_PUBLIC_KEY` | content of `cosign.pub` (also needed by ee-internal) |
+| Repository secret | `RH_REGISTRY_USER` / `RH_REGISTRY_PASSWORD` | registry.redhat.io service account |
+| Repository secret *(optional)* | `RH_AUTOMATION_HUB_TOKEN` | console.redhat.com offline token. When set, collections come from certified/validated content first, then Galaxy |
+| Repository variable *(optional)* | `TRIVY_IGNORE_UNFIXED` | `true` ignores CVEs that have no fix yet |
 
-Every job except `ci-tools` runs in `$CI_TOOLS_IMAGE`. To bootstrap:
+- **GHCR:** the workflow pushes with the built-in `GITHUB_TOKEN`, so no
+  registry secret is needed.
+- **Protection:** add a branch protection rule for `main` and a tag
+  protection rule/ruleset for `ee-deps-v*`.
+- **Fork PRs:** pull requests from forks get no secrets, so their build stops
+  at the registry.redhat.io login.
 
-1. Run the manual `ci-tools` job on the default branch. It runs
-   automatically whenever `ci-tools/` changes.
-2. Set `CI_TOOLS_IMAGE` to the `CI_TOOLS_IMAGE=…@sha256:…` line it prints.
-3. Carry the tools image across the gap once, and again whenever it changes:
+### 4. CI tools image (for the air-gapped GitLab)
 
-   ```bash
-   skopeo copy --preserve-digests docker://quay.example.com/ee/ee-ci-tools@sha256:<digest> oci-archive:ee-ci-tools.oci.tar
-   ```
+`.github/workflows/ci-tools.yml` runs whenever `ee-deps/ci-tools/` changes,
+or manually. It builds the image, pushes
+`ghcr.io/<owner>/ee-ci-tools:<short-sha>`, signs it and uploads a transfer
+bundle artifact `ee-ci-tools-<short-sha>`. That bundle has the same format as
+ee-deps'.
 
-   ```bash
-   skopeo copy --preserve-digests oci-archive:ee-ci-tools.oci.tar docker://quay.example.internal/ee/ee-ci-tools:<short-sha>
-   ```
+Import it on the air-gapped side:
 
-### 5. Runner requirements
+```bash
+ee-internal/scripts/import-bundle.sh ./ee-ci-tools-bundle quay.example.internal/ee/ee-ci-tools
+```
 
-Use the Kubernetes executor with rootless buildah, never privileged:
+Then set ee-internal's `CI_TOOLS_IMAGE` GitLab variable to the printed
+`…@sha256:` reference. The run summary shows it as well.
 
-- Run the build container as uid 1000 (the tools image's `build` user, which
-  has subuid/subgid ranges).
-- `STORAGE_DRIVER=vfs` and `BUILDAH_ISOLATION=chroot` are set in
-  `.gitlab-ci.yml`.
-- vfs copies whole layers, so request roughly **20 Gi of ephemeral storage**
-  for build pods.
-
-The same applies on OpenShift; see ee-internal's README for an example runner
-config with `pipelines-scc`.
+Keep the cosign/trivy digests in `ci-tools/Containerfile` and
+`.github/actions/setup-ee-tools/action.yml` in sync.
 
 ## Building locally
 
@@ -130,30 +132,43 @@ ansible-builder create -v 3 -f execution-environment.yml -c context --output-fil
 ```
 
 ```bash
-podman build -f context/Containerfile -t ee-deps:dev context
+buildah build -f context/Containerfile -t ee-deps:dev context
 ```
 
-`scripts/smoke-test.sh` and `scripts/check-no-secrets.sh` work against buildah
-storage. Podman shares that storage when run as the same user.
+```bash
+scripts/smoke-test.sh ee-deps:dev amazon.aws community.aws
+```
 
 ## Releasing
 
-1. Merge the change (collection bump, base digest bump, …). The default
-   branch publishes `:<short-sha>`.
-2. Tag it with semver: `git tag v1.4.0 && git push origin v1.4.0`.
-3. The tag pipeline pushes `ee-deps:v1.4.0`, signs it and runs
-   `export-bundle`. Download that job's artifacts: `ee-deps-v1.4.0.zip`.
+1. Merge the change (collection bump, base digest bump, …). `main` publishes
+   `:<short-sha>`.
+2. Tag the release:
 
-Release tags are immutable: a pipeline refuses to push an existing tag. Also
-enable tag immutability for the repository in Quay.
+   ```bash
+   git tag ee-deps-v1.4.0
+   ```
 
-> The bundle is roughly the image's compressed size (several hundred MB).
-> Raise **Settings → CI/CD → Maximum artifacts size** for this project, or the
-> instance limit, accordingly.
+   ```bash
+   git push origin ee-deps-v1.4.0
+   ```
+
+3. The tag run pushes `ghcr.io/<owner>/ee-deps:v1.4.0`, signs it and runs
+   `export-bundle`.
+4. Download the artifact **`ee-deps-v1.4.0`** from the workflow run, either
+   in the UI or with this command:
+
+   ```bash
+   gh run download <run-id> -n ee-deps-v1.4.0 -D bundle
+   ```
+
+Release tags are immutable: the workflow refuses to push an existing image
+tag. GHCR has no tag-immutability setting, so this check, together with the
+tag protection rule, is the guard. Artifacts are kept for 90 days.
 
 ## Transfer bundle
 
-`bundle/` in the `export-bundle` artifacts:
+Contents of the `ee-deps-<tag>` artifact:
 
 | File | Content |
 |------|---------|
@@ -171,8 +186,8 @@ tamper-evident in transit.
 ## Import (air-gapped side)
 
 Run these steps from an air-gapped workstation or runner that has `skopeo`,
-`cosign` and `jq` (the CI tools image has all three). Use the script
-`scripts/import-bundle.sh` from the **ee-internal** repo.
+`cosign` and `jq` (the CI tools image has all three). Use
+`ee-internal/scripts/import-bundle.sh`.
 
 ```bash
 skopeo login quay.example.internal
@@ -192,14 +207,16 @@ The script:
    `cosign.pub`. Never use a key that came inside the bundle.
 2. runs `skopeo copy --preserve-digests` for the image into
    `quay…/ee/ee-deps:<tag>`, and for the signature into
-   `quay…/ee/ee-deps:sha256-<hex>.sig`.
+   `quay…/ee/ee-deps:sha256-<hex>.sig`. It refuses to overwrite an existing
+   tag that has a different digest.
 3. confirms the digest in Quay equals `ee-deps-<tag>.digest`.
 4. runs `cosign verify --key cosign.pub --insecure-ignore-tlog=true quay…/ee/ee-deps@<digest>`.
 5. rewrites `images.base_image.name` in ee-internal's
    `execution-environment.yml` to `quay…/ee/ee-deps@<digest>`.
 
-Then open an **MR in ee-internal** with that one-line digest bump. Its pipeline
-re-verifies the signature and builds and tests the internal layer.
+Then open an **MR in the air-gapped ee-internal GitLab project** with that
+one-line digest bump. Its pipeline re-verifies the signature and builds and
+tests the internal layer.
 
 The same procedure, done by hand:
 
@@ -225,9 +242,10 @@ cosign verify --key cosign.pub --insecure-ignore-tlog=true "quay.example.interna
 
 ## Maintenance
 
-- **Base image:** bump the digest regularly to pick up RHEL errata. Scheduled
-  default-branch pipelines rebuild and rescan.
+- **Base image:** bump the digest regularly to pick up RHEL errata. The
+  weekly scheduled run rebuilds and rescans `main`.
 - **Collections:** pin exact versions in `requirements.yml` once a build is
   good. Take them from the smoke-test log.
-- **Tools:** bump the digests in `ci-tools/Containerfile`. Keep cosign on
-  v2.x unless you also adapt the signing flags.
+- **Actions:** first-party actions are pinned to major tags. Pin them to
+  commit SHAs if your policy requires it.
+- **Tools:** keep cosign on v2.x unless you also adapt the signing flags.
