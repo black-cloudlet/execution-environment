@@ -49,8 +49,11 @@ jobs:
           base=$(python -c 'import yaml; print(yaml.safe_load(open("execution-environment.yml"))["images"]["base_image"]["name"])')
           if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
             repo=${base%@*}
-            digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:latest")
-            echo "::error::base_image in execution-environment.yml is not pinned. Set it to: $repo@$digest"
+            # Red Hat AAP repos have no "latest" tag: take the newest version tag
+            newest=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
+              | grep -E '^[0-9]+(\.[0-9]+)*(-[0-9]+)?$' | sort -V | tail -n1)
+            digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
+            echo "::error::base_image in execution-environment.yml is not pinned. Newest tag is $newest - set it to: $repo@$digest"
             exit 1
           fi
           echo "base image: $base"

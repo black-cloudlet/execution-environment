@@ -17,14 +17,21 @@ collections **and** their Python dependencies are baked into the image.
 
 ## Setup
 
-1. Put the base image digest into `execution-environment.yml`:
+1. Add the secrets `RH_REGISTRY_USER` and `RH_REGISTRY_PASSWORD`, for a
+   registry.redhat.io service account. They can be repository or
+   organization secrets. Organization secrets must allow this repository.
+
+2. Pin the base image digest in `execution-environment.yml`. If it isn't
+   pinned, CI prints the current value. The repository has no `latest`
+   tag, so look up the newest tag first:
 
    ```bash
-   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:latest
+   skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
    ```
 
-2. Add the repository secrets `RH_REGISTRY_USER` and
-   `RH_REGISTRY_PASSWORD`. Use a registry.redhat.io service account.
+   ```bash
+   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:<newest-tag>
+   ```
 
 ## What the workflow does
 

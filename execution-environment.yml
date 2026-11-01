@@ -3,8 +3,10 @@ version: 3
 
 images:
   base_image:
-    # AAP 2.7 minimal EE, pinned by digest. Get the digest with:
-    #   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:latest
+    # AAP 2.7 minimal EE, pinned by digest. The repo has no "latest" tag:
+    #   skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
+    #   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:<newest-tag>
+    # (CI prints the current value when this is not pinned.)
     name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:REPLACE_WITH_DIGEST
 
 dependencies:
