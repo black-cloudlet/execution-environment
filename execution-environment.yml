@@ -7,7 +7,7 @@ images:
     #   skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
     #   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:<newest-tag>
     # (CI prints the current value when this is not pinned.)
-    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:REPLACE_WITH_DIGEST
+    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:f6a067ac59c833281934249badf947ad64d5de75cc790b2ccf1d8ea61b54d469  # tag 2.20-1793110779
 
 dependencies:
   galaxy: requirements.yml     # collections; their Python deps (boto3, botocore) are added automatically
