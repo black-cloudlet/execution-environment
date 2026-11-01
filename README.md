@@ -38,7 +38,7 @@ collections **and** their Python dependencies are baked into the image.
 | Event | Result |
 |-------|--------|
 | Pull request | build + smoke test |
-| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:<short-sha>` |
+| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:global` (overwritten by every build on `main`) |
 | Tag `v1.2.3` | … + push `:v1.2.3`, plus artifact `ansible-ee-v1.2.3` (image `.tar` + `.sha256`) |
 
 The smoke test runs `ansible --version`, `ansible-galaxy collection list`, and
