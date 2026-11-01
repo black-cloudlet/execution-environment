@@ -1,4 +1,0 @@
-# RPMs to install into the image, one per line: "pkg [platform:rpm]".
-# Collection-declared system packages are introspected automatically.
-git-core [platform:rpm]
-openssh-clients [platform:rpm]

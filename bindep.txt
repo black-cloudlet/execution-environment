@@ -1,0 +1,2 @@
+git-core [platform:rpm]
+openssh-clients [platform:rpm]

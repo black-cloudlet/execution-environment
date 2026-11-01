@@ -1,6 +1,0 @@
-# Accepted vulnerabilities. One CVE ID per line, each with a justification,
-# an owner and a review date. The build fails on any CRITICAL CVE not listed
-# here.
-#
-# Example:
-# CVE-2099-00000  # not reachable: affects X only; owner: platform-team; review: 2027-01-31

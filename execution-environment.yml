@@ -1,0 +1,16 @@
+---
+version: 3
+
+images:
+  base_image:
+    # AAP 2.7 minimal EE, pinned by digest. Get the digest with:
+    #   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:latest
+    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:REPLACE_WITH_DIGEST
+
+dependencies:
+  galaxy: requirements.yml     # collections; their Python deps (boto3, botocore) are added automatically
+  python: requirements.txt     # extra pip packages only
+  system: bindep.txt           # RPMs
+
+options:
+  package_manager_path: /usr/bin/microdnf

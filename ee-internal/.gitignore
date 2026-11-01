@@ -1,4 +1,0 @@
-context/
-*.oci.tar
-image.digest
-build.env

@@ -1,9 +1,0 @@
-# Extra pip packages only. Do NOT add collection dependencies here (boto3,
-# botocore, ...): ansible-builder introspects them from the collections. List
-# them only if you need to pin a specific version.
-
-# Required by the ee-internal layer. ansible-builder's builder stage runs
-# `pip install bindep pyyaml packaging`. pyyaml and packaging already ship
-# with ansible-core. Having bindep in this image makes that step a no-op
-# ("already satisfied"), so the air-gapped build never needs PyPI.
-bindep

@@ -1,0 +1,1 @@
+# Extra pip packages only. boto3/botocore come from amazon.aws automatically.
