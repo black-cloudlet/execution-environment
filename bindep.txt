@@ -5,3 +5,8 @@ openssh-clients [platform:rpm]   # ssh / scp
 rsync [platform:rpm]             # ansible.posix.synchronize
 tar [platform:rpm]               # unarchive / archive
 unzip [platform:rpm]             # unarchive of .zip files
+
+# Build-only: compile pip packages (e.g. krb5 for microsoft.ad) against
+# the Python 3.12 that ansible-core uses. Not installed in the final image.
+gcc [compile platform:rpm]
+python3.12-devel [compile platform:rpm]
