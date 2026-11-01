@@ -9,6 +9,7 @@ netaddr           # ansible.utils ipaddr / ipv4 / ipv6 filters
 passlib           # password_hash filter
 dnspython         # community.general.dig lookup
 xmltodict         # XML parsing
+yq                # YAML/XML/TOML via jq syntax (yq, xq, tomlq); needs jq from bindep.txt
 
 # Windows
 pywinrm           # WinRM connection to Windows hosts

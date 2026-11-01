@@ -71,6 +71,8 @@ jobs:
           podman run --rm "$IMAGE" python3 -c "import jmespath, netaddr, passlib, dns, xmltodict"
           podman run --rm "$IMAGE" python3 -c "import pyVmomi, kubernetes, docker, winrm, pypsrp, psycopg2, pymysql, hvac"
           podman run --rm "$IMAGE" rsync --version
+          podman run --rm "$IMAGE" jq --version
+          podman run --rm "$IMAGE" yq --version
 
       - name: Push
         if: github.event_name != 'pull_request'
