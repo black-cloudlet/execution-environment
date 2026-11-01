@@ -1,12 +1,26 @@
-# Extra pip packages. Collection dependencies (boto3/botocore for amazon.aws)
-# are added automatically by ansible-builder - don't repeat them here.
+# Extra pip packages. Python dependencies that collections declare
+# (boto3/botocore, pyvmomi, kubernetes, ...) are added automatically by
+# ansible-builder - list a package here only if a collection doesn't declare
+# it or you need to pin it.
 
-jmespath      # community.general.json_query filter (common with AWS output)
-netaddr       # ansible.utils ipaddr / ipv4 / ipv6 filters
-passlib       # password_hash filter
-dnspython     # community.general.dig lookup
-xmltodict     # ansible.utils / XML parsing
+# Filters / lookups
+jmespath          # community.general.json_query (common with AWS output)
+netaddr           # ansible.utils ipaddr / ipv4 / ipv6 filters
+passlib           # password_hash filter
+dnspython         # community.general.dig lookup
+xmltodict         # XML parsing
 
-# Uncomment if needed
-# pywinrm     # Windows hosts over WinRM
-# hvac        # HashiCorp Vault
+# Windows
+pywinrm           # WinRM connection to Windows hosts
+pypsrp            # PSRP connection (alternative to WinRM)
+
+# Containers
+docker            # community.docker
+requests          # community.docker, kubernetes.core, many API modules
+
+# Databases
+psycopg2-binary   # community.postgresql (binary wheel, no compiler needed)
+PyMySQL           # community.mysql
+
+# Secrets
+hvac              # community.hashi_vault

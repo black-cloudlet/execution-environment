@@ -12,5 +12,11 @@ dependencies:
   python: requirements.txt     # extra pip packages only
   system: bindep.txt           # RPMs
 
+additional_build_steps:
+  # Some collections (e.g. VMware) have listed pip packages as git URLs;
+  # pip needs git in the builder stage to install those.
+  prepend_builder:
+    - RUN $PKGMGR install -y git-core && $PKGMGR clean all
+
 options:
   package_manager_path: /usr/bin/microdnf
