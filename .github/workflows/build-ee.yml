@@ -50,8 +50,10 @@ jobs:
           if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
             repo=${base%@*}
             # Red Hat AAP repos have no "latest" tag: take the newest version tag
-            newest=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
-              | grep -E '^[0-9]+(\.[0-9]+)*(-[0-9]+)?$' | sort -V | tail -n1)
+            versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
+              | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?$' | sort -V)
+            echo "newest version tags:"; tail -n5 <<<"$versions"
+            newest=$(tail -n1 <<<"$versions")
             digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
             echo "::error::base_image in execution-environment.yml is not pinned. Newest tag is $newest - set it to: $repo@$digest"
             exit 1
