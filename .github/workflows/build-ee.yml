@@ -1,0 +1,90 @@
+name: Build EE
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-builder
+        run: pip install ansible-builder==3.2.0
+
+      - name: Set image name
+        run: |
+          tag=${GITHUB_SHA::7}
+          [[ $GITHUB_REF == refs/tags/* ]] && tag=$GITHUB_REF_NAME
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee:$tag" >> "$GITHUB_ENV"
+          echo "TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Log in to registries
+        env:
+          RH_USER: ${{ secrets.RH_REGISTRY_USER }}
+          RH_PASSWORD: ${{ secrets.RH_REGISTRY_PASSWORD }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -z $RH_USER || -z $RH_PASSWORD ]]; then
+            echo "::error::Add repository secrets RH_REGISTRY_USER and RH_REGISTRY_PASSWORD (Settings > Secrets and variables > Actions). Use a registry.redhat.io service account: https://access.redhat.com/terms-based-registry/"
+            exit 1
+          fi
+          echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
+          echo "$GH_TOKEN" | podman login -u "$GITHUB_ACTOR" --password-stdin ghcr.io
+
+      - name: Check base image digest
+        run: |
+          base=$(python -c 'import yaml; print(yaml.safe_load(open("execution-environment.yml"))["images"]["base_image"]["name"])')
+          if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
+            repo=${base%@*}
+            # Red Hat AAP repos have no "latest" tag: take the newest version tag
+            versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
+              | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?$' | sort -V)
+            echo "newest version tags:"; tail -n5 <<<"$versions"
+            newest=$(tail -n1 <<<"$versions")
+            digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
+            echo "::error::base_image in execution-environment.yml is not pinned. Newest tag is $newest - set it to: $repo@$digest"
+            exit 1
+          fi
+          echo "base image: $base"
+
+      - name: Build
+        run: ansible-builder build -v 3 -f execution-environment.yml -t "$IMAGE" --container-runtime podman
+
+      - name: Smoke test
+        run: |
+          podman run --rm "$IMAGE" ansible --version
+          podman run --rm "$IMAGE" ansible-galaxy collection list
+          podman run --rm "$IMAGE" python3 -c "import boto3, botocore; print(boto3.__version__, botocore.__version__)"
+          podman run --rm "$IMAGE" python3 -c "import jmespath, netaddr, passlib, dns, xmltodict"
+          podman run --rm "$IMAGE" python3 -c "import pyVmomi, kubernetes, docker, winrm, pypsrp, psycopg2, pymysql, hvac"
+          podman run --rm "$IMAGE" rsync --version
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: podman push "$IMAGE"
+
+      - name: Save image for the air gap
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$IMAGE"
+          sha256sum "ansible-ee-$TAG.tar" > "ansible-ee-$TAG.tar.sha256"
+
+      - uses: actions/upload-artifact@v5
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: ansible-ee-${{ env.TAG }}
+          path: ansible-ee-*.tar*
+          compression-level: 0
