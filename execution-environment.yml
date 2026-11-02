@@ -26,13 +26,21 @@ dependencies:
       - python3-cffi            # ansible.netcommon
       - python3-cryptography    # ansible.netcommon, community.crypto
       - python3-Cython          # ansible.netcommon
-      - python3-devel           # microsoft.ad (python3.12-devel is in bindep.txt)
+      - python3-devel           # some collections (python3.12-devel is in bindep.txt)
       - python3-lxml            # ansible.netcommon
       - python3-pycparser       # ansible.netcommon
       - python3-six             # ansible.netcommon
       - cryptsetup              # community.crypto luks_device - runs on managed hosts, pulls in systemd
     python:
       - pytest-mock             # community.postgresql test dependency
+
+additional_build_steps:
+  # CLI tools copied from their official images, pinned by digest.
+  append_final:
+    - COPY --from=docker.io/alpine/helm:3.22.1@sha256:8191701ad1f82ee3695c87211fcbfe6d7b1bb7df92ac1c8de9ccdb0995a6a2c1 /usr/bin/helm /usr/local/bin/helm
+    # oc supports clusters within one minor version of its own: match your OpenShift
+    - COPY --from=quay.io/openshift/origin-cli:4.22.0@sha256:64ecbe0b472c5a311ce0a5f1606fdac1842aeaf1523c69e02ff7d15cf43cb5b9 /usr/bin/oc /usr/local/bin/oc
+    - COPY --from=quay.io/argoproj/argocd:v3.5.6@sha256:8e5cc5bb008df8a09dba439462e58c94c55b7735888d3ebde0c25fc05e4e5335 /usr/local/bin/argocd /usr/local/bin/argocd
 
 options:
   package_manager_path: /usr/bin/microdnf

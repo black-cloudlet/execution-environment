@@ -15,6 +15,13 @@ collections **and** their Python dependencies are baked into the image.
 | `bindep.txt` | RPMs |
 | `.github/workflows/build-ee.yml` | build, test, push |
 
+Command-line tools in the image, besides `ansible`:
+- `jq` and `yq` (the jq-syntax yq, also `xq` and `tomlq`). Python can use
+  `import jq`.
+- `helm` 3.22.1, `oc` 4.22.0 and `argocd` v3.5.6. These are copied from
+  digest-pinned upstream images in `execution-environment.yml`
+  (`append_final`). To bump one, change its tag and digest there.
+
 ## Setup
 
 1. Add the secrets `RH_REGISTRY_USER` and `RH_REGISTRY_PASSWORD`, for a
