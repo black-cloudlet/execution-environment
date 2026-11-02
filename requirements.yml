@@ -13,10 +13,9 @@ collections:
   - name: community.docker        # docker hosts
   - name: kubernetes.core         # Kubernetes / EKS / OpenShift (k8s, helm)
 
-  # Windows / Active Directory
+  # Windows
   - name: ansible.windows         # core Windows modules
   - name: community.windows       # extra Windows modules
-  - name: microsoft.ad            # Active Directory users, groups, domain join
 
   # Linux / everyday building blocks
   - name: ansible.posix           # synchronize, authorized_key, sysctl, mount, firewalld

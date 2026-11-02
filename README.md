@@ -15,6 +15,16 @@ collections **and** their Python dependencies are baked into the image.
 | `bindep.txt` | RPMs |
 | `.github/workflows/build-ee.yml` | build, test, push |
 
+Command-line tools in the image, besides `ansible`:
+- `jq` and `yq` (the jq-syntax yq, also `xq` and `tomlq`). Python can use
+  `import jq`.
+- `helm` 3.22.1 and `argocd` v3.5.6, copied from digest-pinned upstream
+  images in `execution-environment.yml` (`append_final`). To bump one, change
+  its tag and digest there.
+- `oc` for OpenShift 4.20, copied from Red Hat's
+  `registry.redhat.io/openshift4/ose-cli-rhel9:v4.20`. That tag follows the
+  latest 4.20.z. Change it when the cluster is upgraded.
+
 ## Setup
 
 1. Add the secrets `RH_REGISTRY_USER` and `RH_REGISTRY_PASSWORD`, for a
