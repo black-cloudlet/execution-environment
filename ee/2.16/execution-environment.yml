@@ -1,4 +1,7 @@
 ---
+# ansible-core 2.16, for managed hosts that only have Python 3.6 (RHEL 8).
+# Newer ansible-core needs a newer Python on targets; 2.16 is the last
+# version supporting 3.6. Same base, packages and tools as ../2.20/ - keep in sync.
 version: 3
 
 images:
@@ -10,9 +13,13 @@ images:
     name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:f6a067ac59c833281934249badf947ad64d5de75cc790b2ccf1d8ea61b54d469  # tag 2.20-1793110779
 
 dependencies:
-  galaxy: requirements.yml     # collections; their Python deps (boto3, botocore) are added automatically
-  python: requirements.txt     # extra pip packages only
-  system: bindep.txt           # RPMs
+  galaxy: requirements.yml     # collection versions that still support ansible-core 2.16
+  python: ../../requirements.txt  # extra pip packages, shared by all versions
+  system: ../../bindep.txt        # RPMs, shared by all versions
+
+  # Must match this folder's name (CI checks it). Downgrades the base's 2.20.
+  ansible_core:
+    package_pip: ansible-core==2.16.*
 
   # ansible-core in this base runs on Python 3.12, not RHEL's platform Python 3.9.
   python_interpreter:

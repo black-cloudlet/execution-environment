@@ -1,5 +1,5 @@
 ---
-# Same collections as ../requirements.yml, held at versions that still support
+# Same collections as ../2.20/requirements.yml, held at versions that still support
 # ansible-core 2.16 (newer majors require 2.17+). CI fails if any installed
 # collection's meta/runtime.yml `requires_ansible` excludes 2.16.
 collections:
