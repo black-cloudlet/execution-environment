@@ -51,23 +51,15 @@ jobs:
           RH_USER: ${{ secrets.RH_REGISTRY_USER }}
           RH_PASSWORD: ${{ secrets.RH_REGISTRY_PASSWORD }}
         run: echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
-      - name: List ansible-core in Red Hat EE images
+      - name: Newest build per ansible-core line in AAP 2.7 ee-minimal-rhel9
         run: |
-          for aap in 24 25 26 27; do
-            for img in ee-minimal-rhel8 ee-minimal-rhel9 ee-supported-rhel8 ee-supported-rhel9; do
-              repo=registry.redhat.io/ansible-automation-platform-$aap/$img
-              if ! tags=$(skopeo list-tags "docker://$repo" 2>/dev/null | jq -r '.Tags[]'); then
-                echo "$repo: not available"; continue
-              fi
-              builds=$(grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$' <<<"$tags" | sort -V)
-              lines=$(grep -oE '^[0-9]+\.[0-9]+' <<<"$builds" | sort -uV | tr '\n' ' ')
-              newest=$(tail -n1 <<<"$builds")
-              [[ -n $newest ]] || newest=$(sort -V <<<"$tags" | grep -v sig | tail -n1)
-              core=$(podman run --rm "$repo:$newest" ansible --version 2>/dev/null | head -n1)
-              py=$(podman run --rm "$repo:$newest" ansible --version 2>/dev/null | sed -n 's/.*python version = \([0-9.]*\).*/\1/p')
-              echo "RESULT $repo | tag lines: $lines| newest: $newest | $core | python $py"
-              podman rmi -f "$repo:$newest" >/dev/null 2>&1 || true
-            done
+          repo=registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
+          builds=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' | grep -E '^[0-9]+\.[0-9]+-[0-9]+$' | sort -V)
+          grep -oE '^[0-9]+\.[0-9]+' <<<"$builds" | sort -uV | while read -r line; do
+            newest=$(grep -E "^${line//./\\.}-" <<<"$builds" | tail -n1)
+            core=$(podman run --rm "$repo:$newest" ansible --version | head -n1)
+            echo "RESULT $repo:$newest | $core"
+            podman rmi -f "$repo:$newest" >/dev/null 2>&1 || true
           done
 
   build:
@@ -122,11 +114,14 @@ jobs:
           # Red Hat AAP repos have no "latest" tag; builds are tagged <version>-<build>
           versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
             | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$' | sort -V)
-          newest=$(tail -n1 <<<"$versions")
           if [[ $base != */*:* || ! $tag =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$ ]]; then
-            echo "::error::base_image in $EE_FILE must use a Red Hat build tag like :$newest (got $base)"
+            hint=$(grep -E "^${tag//./\\.}-" <<<"$versions" | tail -n1)
+            echo "::error::base_image in $EE_FILE must use a Red Hat build tag like :${hint:-$(tail -n1 <<<"$versions")} (got $base)"
             exit 1
           fi
+          # newest build of the same line, e.g. 2.16-* for a 2.16-<build> base
+          line=${tag%-*}
+          newest=$(grep -E "^${line//./\\.}-" <<<"$versions" | tail -n1)
           echo "base image: $base"
           if [[ $tag != "$newest" ]]; then
             echo "::notice::newer base image build available: $repo:$newest (using :$tag)"
