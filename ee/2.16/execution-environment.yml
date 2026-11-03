@@ -1,23 +1,24 @@
 ---
 # ansible-core 2.16, for managed hosts that only have Python 3.6 (RHEL 8).
 # Newer ansible-core needs a newer Python on targets; 2.16 is the last
-# version supporting 3.6. Same base, packages and tools as ../2.20/ - keep in sync.
+# version supporting 3.6. Same packages and tools as ../2.20/ - keep in sync.
 version: 3
 
 images:
   base_image:
-    # AAP 2.7 minimal EE, pinned to one Red Hat build tag (<version>-<build>).
-    # Red Hat publishes a new tag per build, so this one stays fixed. CI notes
-    # when a newer build exists. List the tags with:
+    # Red Hat's AAP 2.7 minimal EE with ansible-core 2.16 (the 2.16-* tags),
+    # pinned to one build tag. Red Hat publishes a new tag per build, so this one
+    # stays fixed. CI notes when a newer 2.16 build exists. List the tags with:
     #   skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
-    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:2.20-1793110779
+    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:2.16-1793353171
 
 dependencies:
   galaxy: requirements.yml     # collection versions that still support ansible-core 2.16
   python: ../../requirements.txt  # extra pip packages, shared by all versions
   system: ../../bindep.txt        # RPMs, shared by all versions
 
-  # Must match this folder's name (CI checks it). Downgrades the base's 2.20.
+  # Must match this folder's name (CI checks it). The base already ships 2.16,
+  # so this is a no-op until the base image changes.
   ansible_core:
     package_pip: ansible-core==2.16.*
 

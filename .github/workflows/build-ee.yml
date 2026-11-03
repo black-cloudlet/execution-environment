@@ -42,26 +42,6 @@ jobs:
           echo "versions: $list"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
-  # TEMPORARY: which Red Hat EE images ship which ansible-core. Remove after reading.
-  probe-rh-images:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Log in to registry.redhat.io
-        env:
-          RH_USER: ${{ secrets.RH_REGISTRY_USER }}
-          RH_PASSWORD: ${{ secrets.RH_REGISTRY_PASSWORD }}
-        run: echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
-      - name: Newest build per ansible-core line in AAP 2.7 ee-minimal-rhel9
-        run: |
-          repo=registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
-          builds=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' | grep -E '^[0-9]+\.[0-9]+-[0-9]+$' | sort -V)
-          grep -oE '^[0-9]+\.[0-9]+' <<<"$builds" | sort -uV | while read -r line; do
-            newest=$(grep -E "^${line//./\\.}-" <<<"$builds" | tail -n1)
-            core=$(podman run --rm "$repo:$newest" ansible --version | head -n1)
-            echo "RESULT $repo:$newest | $core"
-            podman rmi -f "$repo:$newest" >/dev/null 2>&1 || true
-          done
-
   build:
     needs: versions
     runs-on: ubuntu-24.04

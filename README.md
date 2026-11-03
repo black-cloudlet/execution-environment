@@ -60,10 +60,12 @@ Command-line tools in every image, besides `ansible`:
    organization secrets. Organization secrets must allow this repository.
 
 2. The base image in each `ee/<version>/execution-environment.yml` is
-   pinned to a Red Hat build tag, e.g. `ee-minimal-rhel9:2.20-1793110779`.
+   pinned to a Red Hat build tag. Each version uses Red Hat's own image for
+   that ansible-core: `ee-minimal-rhel9:2.20-<build>` for 2.20 and
+   `ee-minimal-rhel9:2.16-<build>` for 2.16.
    Red Hat publishes a new tag per build, so a tag never changes. CI adds a
-   note to the run when a newer build exists. To update, set the new tag
-   in every `ee/*/` folder. To list the tags:
+   note to the run when a newer build of the same line exists. To update,
+   set the newer tag in that folder. To list the tags:
 
    ```bash
    skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
