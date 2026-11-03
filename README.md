@@ -20,8 +20,8 @@ collections **and** their Python dependencies are baked into the image.
 
 | Image | ansible-core | Use it for |
 |-------|--------------|------------|
-| `ansible-ee:global` | 2.20 | everything whose managed hosts have Python 3.9+ (RHEL 9, …) |
-| `ansible-ee:rhel8` | 2.16 | job templates that manage **RHEL 8** hosts |
+| `ansible-ee:2.20` | 2.20 | everything whose managed hosts have Python 3.9+ (RHEL 9, …) |
+| `ansible-ee:2.16` | 2.16 | job templates that manage **RHEL 8** hosts |
 
 ansible-core 2.17 and newer need Python 3.9+ on managed hosts. RHEL 8's
 system Python is 3.6, which only ansible-core 2.16 still supports. Without
@@ -71,8 +71,14 @@ Both images are built in parallel.
 | Event | Result |
 |-------|--------|
 | Pull request | build + smoke test |
-| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:global` and `:rhel8` (overwritten by every build on `main`) |
-| Tag `v1.2.3` | … + push `:v1.2.3` and `:v1.2.3-rhel8`, plus artifacts `ansible-ee-v1.2.3` and `ansible-ee-v1.2.3-rhel8` (image `.tar` + `.sha256`) |
+| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:2.20` + `:2.20.<patch>` and `:2.16` + `:2.16.<patch>` |
+| Tag `v1.2.3` | … + push `:v1.2.3-2.20` and `:v1.2.3-2.16`, plus artifacts `ansible-ee-v1.2.3-2.20` and `ansible-ee-v1.2.3-2.16` (image `.tar` + `.sha256`) |
+
+Image tags are taken from the ansible-core version in the built image.
+- `2.20` / `2.16` always point to the latest build from `main`.
+- `2.20.10` etc. name the exact ansible-core. Rebuilding with the same
+  ansible-core but different collections reuses that tag.
+- For an image that never changes, use a release tag (`v1.2.3-2.20`).
 
 The smoke test checks:
 - the ansible-core version
@@ -82,27 +88,27 @@ The smoke test checks:
 
 ## Use it in the air-gapped AAP
 
-1. Download the `ansible-ee-v1.2.3` artifact from the tag's workflow run and
-   carry it across.
+1. Download the `ansible-ee-v1.2.3-2.20` artifact (and `…-2.16` for RHEL 8)
+   from the tag's workflow run and carry it across.
 2. Check the file and push it to your internal registry:
 
    ```bash
-   sha256sum -c ansible-ee-v1.2.3.tar.sha256
+   sha256sum -c ansible-ee-v1.2.3-2.20.tar.sha256
    ```
 
    ```bash
-   skopeo copy oci-archive:ansible-ee-v1.2.3.tar docker://quay.example.internal/ee/ansible-ee:v1.2.3
+   skopeo copy oci-archive:ansible-ee-v1.2.3-2.20.tar docker://quay.example.internal/ee/ansible-ee:v1.2.3-2.20
    ```
 
 3. In AAP, open **Execution Environments** and create or edit the EE
    `global`:
-   - image: `quay.example.internal/ee/ansible-ee:v1.2.3`
+   - image: `quay.example.internal/ee/ansible-ee:v1.2.3-2.20`
    - pull: *Only pull the image if not present*
    - registry credential: your Quay credential
 
-   For RHEL 8 hosts, do the same with the `ansible-ee-v1.2.3-rhel8` artifact
+   For RHEL 8 hosts, do the same with the `ansible-ee-v1.2.3-2.16` artifact
    and a second EE, e.g. `global-rhel8`, with image
-   `quay.example.internal/ee/ansible-ee:v1.2.3-rhel8`. Select that EE on the
+   `quay.example.internal/ee/ansible-ee:v1.2.3-2.16`. Select that EE on the
    job templates that target RHEL 8 hosts.
 
 4. Make three AAP-side changes:

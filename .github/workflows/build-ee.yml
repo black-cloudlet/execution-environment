@@ -43,15 +43,9 @@ jobs:
 
       - name: Set image name
         run: |
-          # main: ansible-ee:global / ansible-ee:rhel8
-          # tag v1.2.3: ansible-ee:v1.2.3 / ansible-ee:v1.2.3-rhel8
-          tag=$VARIANT
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            tag=$GITHUB_REF_NAME
-            [[ $VARIANT == global ]] || tag="$tag-$VARIANT"
-          fi
-          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee:$tag" >> "$GITHUB_ENV"
-          echo "TAG=$tag" >> "$GITHUB_ENV"
+          # Built under a local name; tagged with the ansible-core version after the smoke test.
+          echo "REPO=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee" >> "$GITHUB_ENV"
+          echo "IMAGE=localhost/ansible-ee:build-$VARIANT" >> "$GITHUB_ENV"
 
       - name: Log in to registries
         env:
@@ -102,14 +96,34 @@ jobs:
           podman run --rm "$IMAGE" oc version --client
           podman run --rm "$IMAGE" argocd version --client
 
+      - name: Tag with the ansible-core version
+        run: |
+          # main:       ansible-ee:2.20 and ansible-ee:2.20.10 (exact ansible-core)
+          # tag v1.2.3: ansible-ee:v1.2.3-2.20
+          core=$(podman run --rm "$IMAGE" python3 -c 'from ansible.release import __version__ as v; print(v)')
+          minor=${core%.*}
+          if [[ $minor != "$ANSIBLE_CORE" ]]; then
+            echo "::error::image has ansible-core $core, expected $ANSIBLE_CORE.x"
+            exit 1
+          fi
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            tags="$GITHUB_REF_NAME-$minor"
+          else
+            tags="$minor $core"
+          fi
+          for t in $tags; do podman tag "$IMAGE" "$REPO:$t"; done
+          echo "TAGS=$tags" >> "$GITHUB_ENV"
+          echo "TAG=${tags%% *}" >> "$GITHUB_ENV"
+          echo "image tags: $tags"
+
       - name: Push
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-        run: podman push "$IMAGE"
+        run: for t in $TAGS; do podman push "$REPO:$t"; done
 
       - name: Save image for the air gap
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$IMAGE"
+          podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$REPO:$TAG"
           sha256sum "ansible-ee-$TAG.tar" > "ansible-ee-$TAG.tar.sha256"
 
       - uses: actions/upload-artifact@v5
