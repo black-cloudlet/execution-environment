@@ -42,6 +42,34 @@ jobs:
           echo "versions: $list"
           echo "list=$list" >> "$GITHUB_OUTPUT"
 
+  # TEMPORARY: which Red Hat EE images ship which ansible-core. Remove after reading.
+  probe-rh-images:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Log in to registry.redhat.io
+        env:
+          RH_USER: ${{ secrets.RH_REGISTRY_USER }}
+          RH_PASSWORD: ${{ secrets.RH_REGISTRY_PASSWORD }}
+        run: echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
+      - name: List ansible-core in Red Hat EE images
+        run: |
+          for aap in 24 25 26 27; do
+            for img in ee-minimal-rhel8 ee-minimal-rhel9 ee-supported-rhel8 ee-supported-rhel9; do
+              repo=registry.redhat.io/ansible-automation-platform-$aap/$img
+              if ! tags=$(skopeo list-tags "docker://$repo" 2>/dev/null | jq -r '.Tags[]'); then
+                echo "$repo: not available"; continue
+              fi
+              builds=$(grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$' <<<"$tags" | sort -V)
+              lines=$(grep -oE '^[0-9]+\.[0-9]+' <<<"$builds" | sort -uV | tr '\n' ' ')
+              newest=$(tail -n1 <<<"$builds")
+              [[ -n $newest ]] || newest=$(sort -V <<<"$tags" | grep -v sig | tail -n1)
+              core=$(podman run --rm "$repo:$newest" ansible --version 2>/dev/null | head -n1)
+              py=$(podman run --rm "$repo:$newest" ansible --version 2>/dev/null | sed -n 's/.*python version = \([0-9.]*\).*/\1/p')
+              echo "RESULT $repo | tag lines: $lines| newest: $newest | $core | python $py"
+              podman rmi -f "$repo:$newest" >/dev/null 2>&1 || true
+            done
+          done
+
   build:
     needs: versions
     runs-on: ubuntu-24.04
