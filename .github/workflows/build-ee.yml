@@ -14,6 +14,23 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # main EE: ansible-core 2.20, for managed hosts with Python 3.9+
+          - variant: global
+            file: execution-environment.yml
+            ansible_core: "2.20"
+          # RHEL 8 hosts (Python 3.6): ansible-core 2.16
+          - variant: rhel8
+            file: rhel8/execution-environment.yml
+            ansible_core: "2.16"
+    name: build (${{ matrix.variant }})
+    env:
+      EE_FILE: ${{ matrix.file }}
+      VARIANT: ${{ matrix.variant }}
+      ANSIBLE_CORE: ${{ matrix.ansible_core }}
     steps:
       - uses: actions/checkout@v5
 
@@ -26,8 +43,13 @@ jobs:
 
       - name: Set image name
         run: |
-          tag=global                       # main (and PR builds, which are not pushed)
-          [[ $GITHUB_REF == refs/tags/* ]] && tag=$GITHUB_REF_NAME   # release tags keep their version
+          # main: ansible-ee:global / ansible-ee:rhel8
+          # tag v1.2.3: ansible-ee:v1.2.3 / ansible-ee:v1.2.3-rhel8
+          tag=$VARIANT
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            tag=$GITHUB_REF_NAME
+            [[ $VARIANT == global ]] || tag="$tag-$VARIANT"
+          fi
           echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee:$tag" >> "$GITHUB_ENV"
           echo "TAG=$tag" >> "$GITHUB_ENV"
 
@@ -46,7 +68,7 @@ jobs:
 
       - name: Check base image digest
         run: |
-          base=$(python -c 'import yaml; print(yaml.safe_load(open("execution-environment.yml"))["images"]["base_image"]["name"])')
+          base=$(python -c 'import os, yaml; print(yaml.safe_load(open(os.environ["EE_FILE"]))["images"]["base_image"]["name"])')
           if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
             repo=${base%@*}
             # Red Hat AAP repos have no "latest" tag: take the newest version tag
@@ -55,18 +77,20 @@ jobs:
             echo "newest version tags:"; tail -n5 <<<"$versions"
             newest=$(tail -n1 <<<"$versions")
             digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
-            echo "::error::base_image in execution-environment.yml is not pinned. Newest tag is $newest - set it to: $repo@$digest"
+            echo "::error::base_image in $EE_FILE is not pinned. Newest tag is $newest - set it to: $repo@$digest"
             exit 1
           fi
           echo "base image: $base"
 
       - name: Build
-        run: ansible-builder build -v 3 -f execution-environment.yml -t "$IMAGE" --container-runtime podman
+        run: ansible-builder build -v 3 -f "$EE_FILE" -t "$IMAGE" --container-runtime podman
 
       - name: Smoke test
         run: |
           podman run --rm "$IMAGE" ansible --version
+          podman run --rm "$IMAGE" ansible --version | head -n1 | grep -F "[core $ANSIBLE_CORE."
           podman run --rm "$IMAGE" ansible-galaxy collection list
+          podman run --rm -v "$PWD/.github/check_collections.py:/tmp/check_collections.py:ro" "$IMAGE" python3 /tmp/check_collections.py
           podman run --rm "$IMAGE" python3 -c "import boto3, botocore; print(boto3.__version__, botocore.__version__)"
           podman run --rm "$IMAGE" python3 -c "import jmespath, netaddr, passlib, dns, xmltodict"
           podman run --rm "$IMAGE" python3 -c "import pyVmomi, kubernetes, docker, winrm, pypsrp, psycopg2, pymysql, hvac"
@@ -79,7 +103,7 @@ jobs:
           podman run --rm "$IMAGE" argocd version --client
 
       - name: Push
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         run: podman push "$IMAGE"
 
       - name: Save image for the air gap

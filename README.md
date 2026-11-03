@@ -14,6 +14,25 @@ collections **and** their Python dependencies are baked into the image.
 | `requirements.txt` | extra pip packages (boto3/botocore are added automatically) |
 | `bindep.txt` | RPMs |
 | `.github/workflows/build-ee.yml` | build, test, push |
+| `rhel8/` | second EE for RHEL 8 hosts (see below) |
+
+## Two images
+
+| Image | ansible-core | Use it for |
+|-------|--------------|------------|
+| `ansible-ee:global` | 2.20 | everything whose managed hosts have Python 3.9+ (RHEL 9, …) |
+| `ansible-ee:rhel8` | 2.16 | job templates that manage **RHEL 8** hosts |
+
+ansible-core 2.17 and newer need Python 3.9+ on managed hosts. RHEL 8's
+system Python is 3.6, which only ansible-core 2.16 still supports. Without
+it, jobs fail with `SyntaxError: future feature annotations is not defined`.
+
+`rhel8/` reuses `requirements.txt` and `bindep.txt` from the repo root.
+`rhel8/execution-environment.yml` is a copy of the main one plus the
+ansible-core 2.16 pin, so keep the two in sync. `rhel8/requirements.yml`
+holds collection versions that still support 2.16. CI fails if any installed
+collection's `requires_ansible` excludes the image's ansible-core, in both
+images.
 
 Command-line tools in the image, besides `ansible`:
 - `jq` and `yq` (the jq-syntax yq, also `xq` and `tomlq`). Python can use
@@ -47,12 +66,19 @@ Command-line tools in the image, besides `ansible`:
 
 | Event | Result |
 |-------|--------|
-| Pull request | build + smoke test |
-| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:global` (overwritten by every build on `main`) |
-| Tag `v1.2.3` | … + push `:v1.2.3`, plus artifact `ansible-ee-v1.2.3` (image `.tar` + `.sha256`) |
+Both images are built in parallel.
 
-The smoke test runs `ansible --version`, `ansible-galaxy collection list`, and
-`python3 -c "import boto3, botocore"`.
+| Event | Result |
+|-------|--------|
+| Pull request | build + smoke test |
+| Push to `main` | … + push `ghcr.io/<owner>/ansible-ee:global` and `:rhel8` (overwritten by every build on `main`) |
+| Tag `v1.2.3` | … + push `:v1.2.3` and `:v1.2.3-rhel8`, plus artifacts `ansible-ee-v1.2.3` and `ansible-ee-v1.2.3-rhel8` (image `.tar` + `.sha256`) |
+
+The smoke test checks:
+- the ansible-core version
+- that every collection supports that version
+- the boto3/botocore and other Python imports
+- every CLI tool
 
 ## Use it in the air-gapped AAP
 
@@ -73,6 +99,11 @@ The smoke test runs `ansible --version`, `ansible-galaxy collection list`, and
    - image: `quay.example.internal/ee/ansible-ee:v1.2.3`
    - pull: *Only pull the image if not present*
    - registry credential: your Quay credential
+
+   For RHEL 8 hosts, do the same with the `ansible-ee-v1.2.3-rhel8` artifact
+   and a second EE, e.g. `global-rhel8`, with image
+   `quay.example.internal/ee/ansible-ee:v1.2.3-rhel8`. Select that EE on the
+   job templates that target RHEL 8 hosts.
 
 4. Make three AAP-side changes:
    - Remove `amazon.aws` and `community.aws` from the projects'

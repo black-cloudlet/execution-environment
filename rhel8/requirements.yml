@@ -1,0 +1,41 @@
+---
+# Same collections as ../requirements.yml, held at versions that still support
+# ansible-core 2.16 (newer majors require 2.17+). CI fails if any installed
+# collection's meta/runtime.yml `requires_ansible` excludes 2.16.
+collections:
+  # AWS
+  - name: amazon.aws              # EC2, S3, IAM, RDS, ... + aws_ec2 inventory
+    version: ">=9.0.0,<10.0.0"
+  - name: community.aws           # extra AWS services (SSM connection, ECS, ...)
+    version: ">=9.0.0,<10.0.0"
+
+  # VMware
+  - name: vmware.vmware           # Red Hat certified vSphere modules
+  - name: community.vmware        # broader vSphere coverage + vmware_vm_inventory
+
+  # Containers / Kubernetes
+  - name: containers.podman       # podman containers, pods, images (on managed hosts)
+  - name: community.docker        # docker hosts
+    version: "<5.0.0"
+  - name: kubernetes.core         # Kubernetes / EKS / OpenShift (k8s, helm)
+
+  # Windows
+  - name: ansible.windows         # core Windows modules
+  - name: community.windows       # extra Windows modules
+
+  # Linux / everyday building blocks
+  - name: ansible.posix           # synchronize, authorized_key, sysctl, mount, firewalld
+  - name: ansible.utils           # ipaddr filters, validate, cli_parse
+  - name: ansible.netcommon       # network connection plugins, used by ansible.utils
+  - name: community.general       # json_query, ini_file, archive, timezone, ...
+    version: "<12.0.0"
+  - name: community.crypto        # certificates, keys, openssh_keypair
+    version: "<3.0.0"
+
+  # Databases
+  - name: community.postgresql
+  - name: community.mysql
+
+  # Secrets
+  - name: community.hashi_vault   # HashiCorp Vault lookups and modules
+    version: "<7.0.0"
