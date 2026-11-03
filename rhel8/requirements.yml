@@ -12,6 +12,7 @@ collections:
   # VMware
   - name: vmware.vmware           # Red Hat certified vSphere modules
   - name: community.vmware        # broader vSphere coverage + vmware_vm_inventory
+    version: "<6.0.0"               # 6.x+ require newer ansible-core
 
   # Containers / Kubernetes
   - name: containers.podman       # podman containers, pods, images (on managed hosts)
