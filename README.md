@@ -59,16 +59,14 @@ Command-line tools in every image, besides `ansible`:
    registry.redhat.io service account. They can be repository or
    organization secrets. Organization secrets must allow this repository.
 
-2. Pin the base image digest in each `ee/<version>/execution-environment.yml`.
-   If it isn't pinned, CI prints the current value. The repository has no
-   `latest` tag, so look up the newest tag first:
+2. The base image in each `ee/<version>/execution-environment.yml` is
+   pinned to a Red Hat build tag, e.g. `ee-minimal-rhel9:2.20-1793110779`.
+   Red Hat publishes a new tag per build, so a tag never changes. CI adds a
+   note to the run when a newer build exists. To update, set the new tag
+   in every `ee/*/` folder. To list the tags:
 
    ```bash
    skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
-   ```
-
-   ```bash
-   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:<newest-tag>
    ```
 
 ## How releases work

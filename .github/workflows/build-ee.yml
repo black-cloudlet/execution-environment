@@ -82,21 +82,27 @@ jobs:
           echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
           echo "$GH_TOKEN" | podman login -u "$GITHUB_ACTOR" --password-stdin ghcr.io
 
-      - name: Check base image digest
+      - name: Check base image tag
         run: |
           base=$(python -c 'import os, yaml; print(yaml.safe_load(open(os.environ["EE_FILE"]))["images"]["base_image"]["name"])')
-          if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
-            repo=${base%@*}
-            # Red Hat AAP repos have no "latest" tag: take the newest version tag
-            versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
-              | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?$' | sort -V)
-            echo "newest version tags:"; tail -n5 <<<"$versions"
-            newest=$(tail -n1 <<<"$versions")
-            digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
-            echo "::error::base_image in $EE_FILE is not pinned. Newest tag is $newest - set it to: $repo@$digest"
+          if [[ $base == *@sha256:* ]]; then
+            echo "base image (by digest): $base"
+            exit 0
+          fi
+          repo=${base%:*}
+          tag=${base##*:}
+          # Red Hat AAP repos have no "latest" tag; builds are tagged <version>-<build>
+          versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
+            | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$' | sort -V)
+          newest=$(tail -n1 <<<"$versions")
+          if [[ $base != */*:* || ! $tag =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$ ]]; then
+            echo "::error::base_image in $EE_FILE must use a Red Hat build tag like :$newest (got $base)"
             exit 1
           fi
           echo "base image: $base"
+          if [[ $tag != "$newest" ]]; then
+            echo "::notice::newer base image build available: $repo:$newest (using :$tag)"
+          fi
 
       - name: Build
         run: ansible-builder build -v 3 -f "$EE_FILE" -t "$IMAGE" --container-runtime podman

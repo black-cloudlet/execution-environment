@@ -6,11 +6,11 @@ version: 3
 
 images:
   base_image:
-    # AAP 2.7 minimal EE, pinned by digest. The repo has no "latest" tag:
+    # AAP 2.7 minimal EE, pinned to one Red Hat build tag (<version>-<build>).
+    # Red Hat publishes a new tag per build, so this one stays fixed. CI notes
+    # when a newer build exists. List the tags with:
     #   skopeo list-tags docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9
-    #   skopeo inspect --format '{{.Digest}}' docker://registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:<newest-tag>
-    # (CI prints the current value when this is not pinned.)
-    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9@sha256:f6a067ac59c833281934249badf947ad64d5de75cc790b2ccf1d8ea61b54d469  # tag 2.20-1793110779
+    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:2.20-1793110779
 
 dependencies:
   galaxy: requirements.yml        # collections; their Python deps (boto3, botocore) are added automatically
