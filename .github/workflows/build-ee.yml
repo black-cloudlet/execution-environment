@@ -127,14 +127,15 @@ jobs:
 
       - name: Tag with the ansible-core version
         run: |
-          # :2.20 moves; :2.20.10-<date>-<sha> never changes
+          # :2.20 moves; :2.20.10-<run number> never changes (re-runs: -<run>.<attempt>)
           core=$(podman run --rm "$IMAGE" python3 -c 'from ansible.release import __version__ as v; print(v)')
           minor=${core%.*}
           if [[ $minor != "$ANSIBLE_CORE" ]]; then
             echo "::error::image has ansible-core $core, expected $ANSIBLE_CORE.x"
             exit 1
           fi
-          stamp="$core-$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          stamp="$core-$GITHUB_RUN_NUMBER"
+          (( GITHUB_RUN_ATTEMPT == 1 )) || stamp="$stamp.$GITHUB_RUN_ATTEMPT"
           tags="$minor $stamp"
           for t in $tags; do podman tag "$IMAGE" "$REPO:$t"; done
           echo "TAGS=$tags" >> "$GITHUB_ENV"

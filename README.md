@@ -85,10 +85,13 @@ For each version, a merge to `main` publishes:
 | Tag | Example | Changes? |
 |-----|---------|----------|
 | `<major.minor>` | `ghcr.io/<owner>/ansible-ee:2.20` | moves to the newest build |
-| `<ansible-core>-<date>-<commit>` | `ghcr.io/<owner>/ansible-ee:2.20.10-20261103-a1b2c3d` | never changes. **Use this one in AAP** |
+| `<ansible-core>-<run number>` | `ghcr.io/<owner>/ansible-ee:2.20.10-42` | never changes. **Use this one in AAP** |
 
-The artifact `ansible-ee-2.20.10-20261103-a1b2c3d` (image `.tar` + `.sha256`)
-is kept for 30 days on the workflow run.
+The run number is the GitHub Actions run that built the image (run #42 shows
+its commit). Both versions from one run share it: `2.20.10-42` and
+`2.16.19-42`. A re-run of a failed run gets `-42.2` instead of overwriting.
+The artifact `ansible-ee-2.20.10-42` (image `.tar` + `.sha256`) is kept for
+30 days on the workflow run.
 
 The smoke test checks, for every version:
 - the ansible-core version
@@ -99,15 +102,15 @@ The smoke test checks, for every version:
 ## Use it in the air-gapped AAP
 
 1. Download the artifact for each version you need from the merge's
-   workflow run, and carry it across. Example: `ansible-ee-2.20.10-20261103-a1b2c3d`.
+   workflow run, and carry it across. Example: `ansible-ee-2.20.10-42`.
 2. Check the file and push it to your internal registry:
 
    ```bash
-   sha256sum -c ansible-ee-2.20.10-20261103-a1b2c3d.tar.sha256
+   sha256sum -c ansible-ee-2.20.10-42.tar.sha256
    ```
 
    ```bash
-   skopeo copy oci-archive:ansible-ee-2.20.10-20261103-a1b2c3d.tar docker://quay.example.internal/ee/ansible-ee:2.20.10-20261103-a1b2c3d
+   skopeo copy oci-archive:ansible-ee-2.20.10-42.tar docker://quay.example.internal/ee/ansible-ee:2.20.10-42
    ```
 
 3. In AAP, open **Execution Environments** and create one EE per version,
@@ -115,8 +118,8 @@ The smoke test checks, for every version:
 
    | AAP execution environment | Image |
    |---------------------------|-------|
-   | `RHEL 9+ (ansible-core 2.20)` | `quay.example.internal/ee/ansible-ee:2.20.10-20261103-a1b2c3d` |
-   | `RHEL 8 (ansible-core 2.16)` | `quay.example.internal/ee/ansible-ee:2.16.20-20261103-a1b2c3d` |
+   | `RHEL 9+ (ansible-core 2.20)` | `quay.example.internal/ee/ansible-ee:2.20.10-42` |
+   | `RHEL 8 (ansible-core 2.16)` | `quay.example.internal/ee/ansible-ee:2.16.19-42` |
 
    - pull: *Only pull the image if not present*. The tags never change.
    - registry credential: your Quay credential
