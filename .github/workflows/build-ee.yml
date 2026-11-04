@@ -1,8 +1,7 @@
 name: Build EE
 
-# Every merge to main is a release: each ee/<version>/ image is pushed as
-# :<version> (moving) and :<ansible-core>-<date>-<sha> (never changes), and
-# uploaded as an air-gap artifact. Pull requests and branch runs only build and test.
+# Merge to main = release: every ee/<version>/ image is pushed and saved as an
+# air-gap artifact. Pull requests and branch runs only build and test.
 on:
   pull_request:
   push:
@@ -14,8 +13,7 @@ permissions:
   packages: write
 
 jobs:
-  # One image per ee/<ansible-core major.minor>/ folder: add a folder to build
-  # another version, delete it to stop.
+  # One image per ee/<major.minor>/ folder
   versions:
     runs-on: ubuntu-24.04
     outputs:
@@ -129,7 +127,7 @@ jobs:
 
       - name: Tag with the ansible-core version
         run: |
-          # :2.20 moves to the newest build; :2.20.10-20261103-a1b2c3d never changes
+          # :2.20 moves; :2.20.10-<date>-<sha> never changes
           core=$(podman run --rm "$IMAGE" python3 -c 'from ansible.release import __version__ as v; print(v)')
           minor=${core%.*}
           if [[ $minor != "$ANSIBLE_CORE" ]]; then

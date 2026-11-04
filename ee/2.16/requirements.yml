@@ -1,36 +1,34 @@
 ---
-# Same collections as ../2.20/requirements.yml, held at versions that still support
-# ansible-core 2.16 (newer majors require 2.17+). CI fails if any installed
-# collection's meta/runtime.yml `requires_ansible` excludes 2.16.
+# Pinned to versions that still support ansible-core 2.16; CI checks every collection.
 collections:
   # AWS
-  - name: amazon.aws              # EC2, S3, IAM, RDS, ... + aws_ec2 inventory
+  - name: amazon.aws
     version: ">=9.0.0,<10.0.0"
-  - name: community.aws           # extra AWS services (SSM connection, ECS, ...)
+  - name: community.aws
     version: ">=9.0.0,<10.0.0"
 
   # VMware
-  - name: vmware.vmware           # Red Hat certified vSphere modules
-  - name: community.vmware        # broader vSphere coverage + vmware_vm_inventory
-    version: "<5.0.0"               # 5.10+ require ansible-core >=2.17
+  - name: vmware.vmware
+  - name: community.vmware
+    version: "<5.0.0"
 
   # Containers / Kubernetes
-  - name: containers.podman       # podman containers, pods, images (on managed hosts)
-  - name: community.docker        # docker hosts
+  - name: containers.podman
+  - name: community.docker
     version: "<5.0.0"
-  - name: kubernetes.core         # Kubernetes / EKS / OpenShift (k8s, helm)
+  - name: kubernetes.core
 
   # Windows
-  - name: ansible.windows         # core Windows modules
-  - name: community.windows       # extra Windows modules
+  - name: ansible.windows
+  - name: community.windows
 
-  # Linux / everyday building blocks
-  - name: ansible.posix           # synchronize, authorized_key, sysctl, mount, firewalld
-  - name: ansible.utils           # ipaddr filters, validate, cli_parse
-  - name: ansible.netcommon       # network connection plugins, used by ansible.utils
-  - name: community.general       # json_query, ini_file, archive, timezone, ...
+  # Linux / general
+  - name: ansible.posix
+  - name: ansible.utils
+  - name: ansible.netcommon
+  - name: community.general
     version: "<12.0.0"
-  - name: community.crypto        # certificates, keys, openssh_keypair
+  - name: community.crypto
     version: "<3.0.0"
 
   # Databases
@@ -38,5 +36,5 @@ collections:
   - name: community.mysql
 
   # Secrets
-  - name: community.hashi_vault   # HashiCorp Vault lookups and modules
+  - name: community.hashi_vault
     version: "<7.0.0"

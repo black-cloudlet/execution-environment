@@ -1,13 +1,11 @@
-# RPMs. The build on GitHub has no RHEL subscription, so only packages from
-# the UBI 9 repositories are available.
-git-core [platform:rpm]          # ansible.builtin.git
-openssh-clients [platform:rpm]   # ssh / scp
-rsync [platform:rpm]             # ansible.posix.synchronize
-tar [platform:rpm]               # unarchive / archive
-unzip [platform:rpm]             # unarchive of .zip files
-jq [platform:rpm]                # JSON processing in shell tasks
+# Only UBI 9 packages are available (no RHEL subscription on GitHub runners).
+git-core [platform:rpm]
+openssh-clients [platform:rpm]
+rsync [platform:rpm]
+tar [platform:rpm]
+unzip [platform:rpm]
+jq [platform:rpm]
 
-# Build-only: compile pip packages that have no prebuilt wheel against
-# the Python 3.12 that ansible-core uses. Not installed in the final image.
+# Build-only, for pip packages without a prebuilt wheel
 gcc [compile platform:rpm]
 python3.12-devel [compile platform:rpm]
