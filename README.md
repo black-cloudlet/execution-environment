@@ -106,22 +106,25 @@ smoke test catches it.
 ## How releases work
 
 **Every merge to `main` is a release.** There are no git tags to create.
+Every push to any other branch is built, tested and published too, under
+tags that carry the branch name, so a change can be tried in AAP before it
+is merged.
 
-| Event | Result |
-|-------|--------|
-| Pull request | build + smoke test every version, nothing published |
-| Merge to `main` (or a manual run on `main`) | … + push to GHCR and an air-gap artifact for every version |
+| Build | Moving tag | Fixed tag (never changes) |
+|-------|------------|---------------------------|
+| `main` | `ansible-ee:2.20` | `ansible-ee:2.20.10-42`. **Use this one in AAP** |
+| branch `feature/vmware` | `ansible-ee:2.20-feature-vmware` | `ansible-ee:2.20.10-feature-vmware-3` |
 
-For each version, a merge to `main` publishes:
+All tags are on `ghcr.io/<owner>/ansible-ee`. Only `main` builds also upload
+an air-gap artifact.
 
-| Tag | Example | Changes? |
-|-----|---------|----------|
-| `<major.minor>` | `ghcr.io/<owner>/ansible-ee:2.20` | moves to the newest build |
-| `<ansible-core>-<run number>` | `ghcr.io/<owner>/ansible-ee:2.20.10-42` | never changes. **Use this one in AAP** |
-
-The run number is the GitHub Actions run that built the image (run #42 shows
-its commit). Both versions from one run share it: `2.20.10-42` and
-`2.16.19-42`. A re-run of a failed run gets `-42.2` instead of overwriting.
+- **The number counts that branch's builds:** `-42` is the 42nd build of
+  `main`, and `-3` the 3rd build of `feature/vmware`. The workflow run shows
+  the commit.
+- **Both versions from one build share it:** `2.20.10-42` and `2.16.19-42`.
+- **A re-run** of a failed build gets `-42.2` instead of overwriting.
+- **Branch names are cleaned:** characters that tags don't allow become `-`.
+- **Pull requests show the result** of the push build of their branch.
 
 The smoke test checks, for every version:
 - the ansible-core version

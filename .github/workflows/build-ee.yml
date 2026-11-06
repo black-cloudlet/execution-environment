@@ -1,16 +1,17 @@
 name: Build EE
 
-# Merge to main = release: every ee/<version>/ image is pushed and saved as an
-# air-gap artifact. Pull requests and branch runs only build and test.
+# Every push builds, tests and publishes each ee/<version>/ image.
+# main: :2.20 and :2.20.10-<n>, plus an air-gap artifact.
+# Other branches: :2.20-<branch> and :2.20.10-<branch>-<n>.
+# <n> counts that branch's builds. PRs show the push build's result.
 on:
-  pull_request:
   push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
   packages: write
+  actions: read   # count this branch's earlier builds
 
 jobs:
   # One image per ee/<major.minor>/ folder
@@ -126,34 +127,60 @@ jobs:
           podman run --rm "$IMAGE" argocd version --client
 
       - name: Tag with the ansible-core version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'main' }}
         run: |
-          # :2.20 moves; :2.20.10-<run number> never changes (re-runs: -<run>.<attempt>)
           core=$(podman run --rm "$IMAGE" python3 -c 'from ansible.release import __version__ as v; print(v)')
           minor=${core%.*}
           if [[ $minor != "$ANSIBLE_CORE" ]]; then
             echo "::error::image has ansible-core $core, expected $ANSIBLE_CORE.x"
             exit 1
           fi
-          stamp="$core-$GITHUB_RUN_NUMBER"
-          (( GITHUB_RUN_ATTEMPT == 1 )) || stamp="$stamp.$GITHUB_RUN_ATTEMPT"
-          tags="$minor $stamp"
+
+          # <n>: builds of this workflow on this branch, up to and including this one
+          branch=$GITHUB_REF_NAME
+          wf=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .workflow_id)
+          n=$(gh api -X GET --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/$wf/runs" \
+                -f branch="$branch" -F per_page=100 \
+                --jq "[.workflow_runs[] | select(.run_number <= $GITHUB_RUN_NUMBER and (.event == \"push\" or .event == \"workflow_dispatch\"))] | length" \
+              | awk '{s += $1} END {print s + 0}')
+          (( n > 0 )) || { echo "::error::could not count the builds of branch $branch"; exit 1; }
+          (( GITHUB_RUN_ATTEMPT == 1 )) || n="$n.$GITHUB_RUN_ATTEMPT"   # re-run: -<n>.<attempt>
+
+          if [[ $branch == "$DEFAULT_BRANCH" ]]; then
+            tags="$minor $core-$n"
+            default=true
+          else
+            slug=$(tr '[:upper:]' '[:lower:]' <<<"$branch" | sed -E 's/[^a-z0-9._-]+/-/g; s/^[.-]+//; s/-+$//' | cut -c1-60)
+            tags="$minor-$slug $core-$slug-$n"
+            default=false
+          fi
           for t in $tags; do podman tag "$IMAGE" "$REPO:$t"; done
-          echo "TAGS=$tags" >> "$GITHUB_ENV"
-          echo "TAG=$stamp" >> "$GITHUB_ENV"
+          {
+            echo "TAGS=$tags"
+            echo "TAG=${tags##* }"
+            echo "IS_DEFAULT=$default"
+          } >> "$GITHUB_ENV"
           echo "image tags: $tags"
 
       - name: Push
-        if: github.ref == 'refs/heads/main'
-        run: for t in $TAGS; do podman push "$REPO:$t"; done
+        run: |
+          # the fixed tag must never be overwritten
+          if skopeo inspect --raw "docker://$REPO:$TAG" >/dev/null 2>&1; then
+            echo "::error::$REPO:$TAG already exists"
+            exit 1
+          fi
+          for t in $TAGS; do podman push "$REPO:$t"; done
 
       - name: Save image for the air gap
-        if: github.ref == 'refs/heads/main'
+        if: env.IS_DEFAULT == 'true'
         run: |
           podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$REPO:$TAG"
           sha256sum "ansible-ee-$TAG.tar" > "ansible-ee-$TAG.tar.sha256"
 
       - uses: actions/upload-artifact@v5
-        if: github.ref == 'refs/heads/main'
+        if: env.IS_DEFAULT == 'true'
         with:
           name: ansible-ee-${{ env.TAG }}
           path: ansible-ee-*.tar*
