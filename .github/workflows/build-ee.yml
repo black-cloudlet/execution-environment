@@ -1,10 +1,11 @@
 name: Build EE
 
+# Merge to main = release: every ee/<version>/ image is pushed and saved as an
+# air-gap artifact. Pull requests and branch runs only build and test.
 on:
   pull_request:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -12,8 +13,44 @@ permissions:
   packages: write
 
 jobs:
-  build:
+  # One image per ee/<major.minor>/ folder
+  versions:
     runs-on: ubuntu-24.04
+    outputs:
+      list: ${{ steps.find.outputs.list }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: find
+        run: |
+          versions=()
+          for d in ee/*/; do
+            [[ -f ${d}execution-environment.yml ]] || continue
+            v=$(basename "$d")
+            if [[ ! $v =~ ^[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::folder ee/$v must be named after an ansible-core version, e.g. ee/2.20"
+              exit 1
+            fi
+            versions+=("$v")
+          done
+          if (( ${#versions[@]} == 0 )); then
+            echo "::error::no ee/<version>/execution-environment.yml found"
+            exit 1
+          fi
+          list=$(printf '%s\n' "${versions[@]}" | sort -V | jq -Rnc '[inputs]')
+          echo "versions: $list"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.versions.outputs.list) }}
+    name: build (ansible-core ${{ matrix.version }})
+    env:
+      EE_FILE: ee/${{ matrix.version }}/execution-environment.yml
+      ANSIBLE_CORE: ${{ matrix.version }}
     steps:
       - uses: actions/checkout@v5
 
@@ -26,10 +63,9 @@ jobs:
 
       - name: Set image name
         run: |
-          tag=global                       # main (and PR builds, which are not pushed)
-          [[ $GITHUB_REF == refs/tags/* ]] && tag=$GITHUB_REF_NAME   # release tags keep their version
-          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee:$tag" >> "$GITHUB_ENV"
-          echo "TAG=$tag" >> "$GITHUB_ENV"
+          # Built under a local name; tagged with the ansible-core version after the smoke test.
+          echo "REPO=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ansible-ee" >> "$GITHUB_ENV"
+          echo "IMAGE=localhost/ansible-ee:build-$ANSIBLE_CORE" >> "$GITHUB_ENV"
 
       - name: Log in to registries
         env:
@@ -44,29 +80,40 @@ jobs:
           echo "$RH_PASSWORD" | podman login -u "$RH_USER" --password-stdin registry.redhat.io
           echo "$GH_TOKEN" | podman login -u "$GITHUB_ACTOR" --password-stdin ghcr.io
 
-      - name: Check base image digest
+      - name: Check base image tag
         run: |
-          base=$(python -c 'import yaml; print(yaml.safe_load(open("execution-environment.yml"))["images"]["base_image"]["name"])')
-          if [[ ! $base =~ @sha256:[0-9a-f]{64}$ ]]; then
-            repo=${base%@*}
-            # Red Hat AAP repos have no "latest" tag: take the newest version tag
-            versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
-              | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?(-[0-9]+)?$' | sort -V)
-            echo "newest version tags:"; tail -n5 <<<"$versions"
-            newest=$(tail -n1 <<<"$versions")
-            digest=$(skopeo inspect --format '{{.Digest}}' "docker://$repo:$newest")
-            echo "::error::base_image in execution-environment.yml is not pinned. Newest tag is $newest - set it to: $repo@$digest"
+          base=$(python -c 'import os, yaml; print(yaml.safe_load(open(os.environ["EE_FILE"]))["images"]["base_image"]["name"])')
+          if [[ $base == *@sha256:* ]]; then
+            echo "base image (by digest): $base"
+            exit 0
+          fi
+          repo=${base%:*}
+          tag=${base##*:}
+          # Red Hat AAP repos have no "latest" tag; builds are tagged <version>-<build>
+          versions=$(skopeo list-tags "docker://$repo" | jq -r '.Tags[]' \
+            | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$' | sort -V)
+          if [[ $base != */*:* || ! $tag =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?-[0-9]+$ ]]; then
+            hint=$(grep -E "^${tag//./\\.}-" <<<"$versions" | tail -n1)
+            echo "::error::base_image in $EE_FILE must use a Red Hat build tag like :${hint:-$(tail -n1 <<<"$versions")} (got $base)"
             exit 1
           fi
+          # newest build of the same line, e.g. 2.16-* for a 2.16-<build> base
+          line=${tag%-*}
+          newest=$(grep -E "^${line//./\\.}-" <<<"$versions" | tail -n1)
           echo "base image: $base"
+          if [[ $tag != "$newest" ]]; then
+            echo "::notice::newer base image build available: $repo:$newest (using :$tag)"
+          fi
 
       - name: Build
-        run: ansible-builder build -v 3 -f execution-environment.yml -t "$IMAGE" --container-runtime podman
+        run: ansible-builder build -v 3 -f "$EE_FILE" -t "$IMAGE" --container-runtime podman
 
       - name: Smoke test
         run: |
           podman run --rm "$IMAGE" ansible --version
+          podman run --rm "$IMAGE" ansible --version | head -n1 | grep -F "[core $ANSIBLE_CORE."
           podman run --rm "$IMAGE" ansible-galaxy collection list
+          podman run --rm -v "$PWD/.github/check_collections.py:/tmp/check_collections.py:ro" "$IMAGE" python3 /tmp/check_collections.py
           podman run --rm "$IMAGE" python3 -c "import boto3, botocore; print(boto3.__version__, botocore.__version__)"
           podman run --rm "$IMAGE" python3 -c "import jmespath, netaddr, passlib, dns, xmltodict"
           podman run --rm "$IMAGE" python3 -c "import pyVmomi, kubernetes, docker, winrm, pypsrp, psycopg2, pymysql, hvac"
@@ -78,19 +125,37 @@ jobs:
           podman run --rm "$IMAGE" oc version --client
           podman run --rm "$IMAGE" argocd version --client
 
+      - name: Tag with the ansible-core version
+        run: |
+          # :2.20 moves; :2.20.10-<run number> never changes (re-runs: -<run>.<attempt>)
+          core=$(podman run --rm "$IMAGE" python3 -c 'from ansible.release import __version__ as v; print(v)')
+          minor=${core%.*}
+          if [[ $minor != "$ANSIBLE_CORE" ]]; then
+            echo "::error::image has ansible-core $core, expected $ANSIBLE_CORE.x"
+            exit 1
+          fi
+          stamp="$core-$GITHUB_RUN_NUMBER"
+          (( GITHUB_RUN_ATTEMPT == 1 )) || stamp="$stamp.$GITHUB_RUN_ATTEMPT"
+          tags="$minor $stamp"
+          for t in $tags; do podman tag "$IMAGE" "$REPO:$t"; done
+          echo "TAGS=$tags" >> "$GITHUB_ENV"
+          echo "TAG=$stamp" >> "$GITHUB_ENV"
+          echo "image tags: $tags"
+
       - name: Push
-        if: github.event_name != 'pull_request'
-        run: podman push "$IMAGE"
+        if: github.ref == 'refs/heads/main'
+        run: for t in $TAGS; do podman push "$REPO:$t"; done
 
       - name: Save image for the air gap
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref == 'refs/heads/main'
         run: |
-          podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$IMAGE"
+          podman save --format oci-archive -o "ansible-ee-$TAG.tar" "$REPO:$TAG"
           sha256sum "ansible-ee-$TAG.tar" > "ansible-ee-$TAG.tar.sha256"
 
       - uses: actions/upload-artifact@v5
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref == 'refs/heads/main'
         with:
           name: ansible-ee-${{ env.TAG }}
           path: ansible-ee-*.tar*
           compression-level: 0
+          retention-days: 30

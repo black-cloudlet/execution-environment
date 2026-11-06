@@ -1,0 +1,44 @@
+---
+# ansible-core 2.20, for managed hosts with Python 3.9+ (RHEL 9+)
+version: 3
+
+images:
+  base_image:
+    # Red Hat build tag (<version>-<build>); CI notes when a newer build exists
+    name: registry.redhat.io/ansible-automation-platform-27/ee-minimal-rhel9:2.20-1793345395
+
+dependencies:
+  galaxy: requirements.yml
+  python: ../../requirements.txt
+  system: ../../bindep.txt
+
+  ansible_core:
+    package_pip: ansible-core==2.20.*   # must match the folder name
+
+  python_interpreter:
+    python_path: /usr/bin/python3.12      # what ansible-core runs on in this base
+
+  # RPMs built for RHEL's Python 3.9 would replace /usr/bin/python3;
+  # pip installs the same libraries for Python 3.12 instead.
+  exclude:
+    system:
+      - python3-cffi
+      - python3-cryptography
+      - python3-Cython
+      - python3-devel
+      - python3-lxml
+      - python3-pycparser
+      - python3-six
+      - cryptsetup              # only needed on managed hosts; pulls in systemd
+    python:
+      - pytest-mock
+
+additional_build_steps:
+  append_final:
+    - COPY --from=docker.io/alpine/helm:3.22.1@sha256:8191701ad1f82ee3695c87211fcbfe6d7b1bb7df92ac1c8de9ccdb0995a6a2c1 /usr/bin/helm /usr/local/bin/helm
+    # v4.20 follows the latest 4.20.z; bump it with the cluster
+    - COPY --from=registry.redhat.io/openshift4/ose-cli-rhel9:v4.20 /usr/bin/oc /usr/local/bin/oc
+    - COPY --from=quay.io/argoproj/argocd:v3.5.6@sha256:8e5cc5bb008df8a09dba439462e58c94c55b7735888d3ebde0c25fc05e4e5335 /usr/local/bin/argocd /usr/local/bin/argocd
+
+options:
+  package_manager_path: /usr/bin/microdnf

@@ -1,0 +1,40 @@
+---
+# Pinned to versions that still support ansible-core 2.16; CI checks every collection.
+collections:
+  # AWS
+  - name: amazon.aws
+    version: ">=9.0.0,<10.0.0"
+  - name: community.aws
+    version: ">=9.0.0,<10.0.0"
+
+  # VMware
+  - name: vmware.vmware
+  - name: community.vmware
+    version: "<5.0.0"
+
+  # Containers / Kubernetes
+  - name: containers.podman
+  - name: community.docker
+    version: "<5.0.0"
+  - name: kubernetes.core
+
+  # Windows
+  - name: ansible.windows
+  - name: community.windows
+
+  # Linux / general
+  - name: ansible.posix
+  - name: ansible.utils
+  - name: ansible.netcommon
+  - name: community.general
+    version: "<12.0.0"
+  - name: community.crypto
+    version: "<3.0.0"
+
+  # Databases
+  - name: community.postgresql
+  - name: community.mysql
+
+  # Secrets
+  - name: community.hashi_vault
+    version: "<7.0.0"

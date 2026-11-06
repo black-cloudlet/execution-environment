@@ -1,0 +1,33 @@
+---
+collections:
+  # AWS
+  - name: amazon.aws
+  - name: community.aws
+
+  # VMware
+  - name: vmware.vmware
+  - name: community.vmware
+    version: "<7.0.0"   # 7.x requires ansible-core >=2.21
+
+  # Containers / Kubernetes
+  - name: containers.podman
+  - name: community.docker
+  - name: kubernetes.core
+
+  # Windows
+  - name: ansible.windows
+  - name: community.windows
+
+  # Linux / general
+  - name: ansible.posix
+  - name: ansible.utils
+  - name: ansible.netcommon
+  - name: community.general
+  - name: community.crypto
+
+  # Databases
+  - name: community.postgresql
+  - name: community.mysql
+
+  # Secrets
+  - name: community.hashi_vault
